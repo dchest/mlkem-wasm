@@ -176,7 +176,7 @@ class MlKem768 {
 
       const result = module._mlkem768_keypair_derand(pkPtr, skPtr, coinsPtr);
       if (result !== 0) {
-        throw new Error("Key generation failed");
+        throw new MlKemOperationError("Key generation failed");
       }
 
       const rawPublicKey = new Uint8Array(PUBLICKEY_BYTES);

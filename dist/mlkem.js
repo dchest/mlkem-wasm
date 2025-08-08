@@ -407,7 +407,7 @@ var MlKem768 = class {
       module.HEAPU8.set(coins, coinsPtr);
       const result = module._mlkem768_keypair_derand(pkPtr, skPtr, coinsPtr);
       if (result !== 0) {
-        throw new Error("Key generation failed");
+        throw new MlKemOperationError("Key generation failed");
       }
       const rawPublicKey = new Uint8Array(PUBLICKEY_BYTES);
       const rawSecretKey = new Uint8Array(SECRETKEY_BYTES);
