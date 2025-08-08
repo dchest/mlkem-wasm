@@ -531,7 +531,6 @@ class MlKem768 {
           if (publicKeyData.length !== PUBLICKEY_BYTES) {
             throw new MlKemDataError("Invalid public key data");
           }
-          // TODO: validate public key
           // 1.9.2. Let key be a new CryptoKey object that represents the
           // ML-KEM public key identified by interpreting the pub attribute of
           // jwk as a base64url encoded public key.
