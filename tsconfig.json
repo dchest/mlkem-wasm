@@ -1,0 +1,14 @@
+{
+    "compilerOptions": {
+        "declaration": true,
+        "emitDeclarationOnly": true,
+        "outDir": "types",
+        "module": "esnext",
+        "target": "esnext",
+        "strict": true,
+        "allowImportingTsExtensions": true,
+    },
+    "include": [
+        "src/**/*.ts"
+    ]
+}

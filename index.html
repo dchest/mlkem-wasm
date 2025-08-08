@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ML-KEM-768 WebAssembly Demo</title>
+    <style>
+        .info-box {
+            background: #e7f3ff;
+            border: 1px solid #007acc;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+
+        .output-box {
+            background: #fefefe;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            word-break: break-all;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+
+        h1 {
+            color: #333;
+            text-align: center;
+            border-bottom: 3px solid #007acc;
+            padding-bottom: 10px;
+        }
+
+        h2 {
+            color: #007acc;
+            margin-top: 30px;
+        }
+
+        .tab-bar {
+            display: flex;
+            border-bottom: 1px solid #bdbdbd;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+
+        .tab {
+            background: #f5f5f5;
+            color: #007acc;
+            border: 1px solid #bdbdbd;
+            border-radius: 6px;
+            padding: 6px 18px 6px 18px;
+            cursor: pointer;
+            font-size: 13px;
+            margin-right: 2px;
+            min-width: 48px;
+            outline: none;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .tab.active {
+            background: #fff;
+            color: #222;
+            font-weight: bold;
+            z-index: 2;
+        }
+
+        .tab:hover {
+            background: #e0e0e0;
+        }
+
+        button {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+            transition: background-color 0.3s;
+        }
+
+        button:hover {
+            background: #005a9e;
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            color: #666;
+            font-style: italic;
+        }
+
+        .error {
+            color: #d32f2f;
+            background: #ffebee;
+            border: 1px solid #ffcdd2;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+
+        .success {
+            color: #2e7d32;
+            background: #e8f5e8;
+            border: 1px solid #c8e6c9;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+
+        .step {
+            margin: 20px 0;
+            padding: 15px;
+            border-left: 4px solid #007acc;
+            background: #f9f9f9;
+        }
+
+        .benchmark {
+            background: #fff3e0;
+            border: 1px solid #ff9800;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <h1>ML-KEM-768 WebAssembly Demo</h1>
+
+        <div class="info-box">
+            <strong>About ML-KEM-768:</strong><br>
+            ML-KEM-768 (formerly Kyber-768) is a quantum-resistant key encapsulation mechanism
+            standardized by NIST. This demo shows the WebAssembly implementation running
+            directly in your browser.
+            <br><br>
+            Source code and docs: <a href="https://github.com/dchest/mlkem-wasm">github.com/dchest/mlkem-wasm</a>
+            <br>
+            Package: <code>npm install mlkem-wasm</code>
+        </div>
+
+        <h2>Algorithm Information</h2>
+        <div id="algorithmInfo" class="output-box loading">Loading WASM module...</div>
+
+        <h2>Key Exchange Demo</h2>
+
+        <div class="step">
+            <h3>Step 1: Generate Key Pairs</h3>
+            <button id="generateKeypair" disabled>Generate Keypairs</button>
+            <div id="keypairTabs">
+                <div class="tab-bar" id="tab-bar" style="display:none;">
+                    <button class="tab" id="tab-hex" data-tab="hex" disabled>Raw (hex)</button>
+                    <button class="tab" id="tab-jwk" data-tab="jwk" disabled>JWK</button>
+                </div>
+            </div>
+            <div id="keypairOutput"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 2: Encapsulation (Alice encapsulates with Bob's public key)</h3>
+            <button id="encapsulate" disabled>Encapsulate</button>
+            <div id="encapsulateOutput"></div>
+        </div>
+
+        <div class="step">
+            <h3>Step 3: Decapsulation (Bob decapsulates ciphertext with his private key)</h3>
+            <button id="decapsulate" disabled>Decapsulate</button>
+            <div id="decapsulateOutput"></div>
+        </div>
+
+        <div class="step">
+            <h3>Did it work? Compare Shared Secrets</h3>
+            <button id="verify" disabled>Compare</button>
+            <div id="verifyOutput"></div>
+        </div>
+
+        <h2>Performance Benchmark</h2>
+        <button id="benchmark" disabled>Run Benchmark</button>
+        <div id="benchmarkOutput"></div>
+    </div>
+
+    <script type="module">
+        import mlkem from './dist/mlkem.js';
+
+        let keypair = null;
+        let aliceKeypair = null;
+        let bobKeypair = null;
+        let encResult = null;
+        let decryptedSecret = null;
+
+        // Utility functions
+        function bytesToHex(bytes) {
+            return Array.from(new Uint8Array(bytes))
+                .map(b => b.toString(16).padStart(2, '0'))
+                .join('');
+        }
+
+        function arraysEqual(a, b) {
+            a = new Uint8Array(a);
+            b = new Uint8Array(b);
+            if (a.length !== b.length) return false;
+            for (let i = 0; i < a.length; i++) {
+                if (a[i] !== b[i]) return false;
+            }
+            return true;
+        }
+
+        function formatBytes(bytes) {
+            return `${bytes} bytes`;
+        }
+
+        function showOutput(elementId, content, className = '') {
+            const element = document.getElementById(elementId);
+            element.innerHTML = content;
+            element.className = content ? 'output-box ' + className : className;
+        }
+
+        function showError(elementId, message) {
+            showOutput(elementId, `❌ Error: ${message}`, 'error');
+        }
+
+        function showSuccess(elementId, message) {
+            showOutput(elementId, `✅ ${message}`, 'success');
+        }
+
+        // Show algorithm info
+        document.getElementById('algorithmInfo').innerHTML = `
+            <strong>Algorithm:</strong> ML-KEM-768<br>
+            <strong>Public Key Size:</strong> 1184 bytes<br>
+            <strong>Secret Key Size:</strong> 2400 bytes<br>
+            <strong>Ciphertext Size:</strong> 1088 bytes<br>
+            <strong>Shared Secret Size:</strong> 32 bytes
+        `;
+        document.getElementById('algorithmInfo').className = 'output-box';
+        document.getElementById('generateKeypair').disabled = false;
+        document.getElementById('benchmark').disabled = false;
+
+        // Event handlers
+        document.getElementById('generateKeypair').addEventListener('click', async () => {
+            // Clear all outputs and reset UI
+            showOutput('keypairOutput', '');
+            showOutput('encapsulateOutput', '');
+            showOutput('decapsulateOutput', '');
+            showOutput('verifyOutput', '');
+            showOutput('benchmarkOutput', '');
+            document.getElementById('encapsulate').disabled = true;
+            document.getElementById('decapsulate').disabled = true;
+            document.getElementById('verify').disabled = true;
+            document.getElementById('tab-bar').style.display = 'none';
+            document.getElementById('tab-hex').disabled = true;
+            document.getElementById('tab-jwk').disabled = true;
+
+            try {
+                const start = performance.now();
+                aliceKeypair = await mlkem.generateKey(
+                    { name: 'ML-KEM-768' },
+                    true,
+                    ['encapsulateKey', 'encapsulateBits', 'decapsulateKey', 'decapsulateBits']
+                );
+                bobKeypair = await mlkem.generateKey(
+                    { name: 'ML-KEM-768' },
+                    true,
+                    ['encapsulateKey', 'encapsulateBits', 'decapsulateKey', 'decapsulateBits']
+                );
+                const time = performance.now() - start;
+
+                // Prepare hex and JWK exports
+                const alicePub = new Uint8Array(await mlkem.exportKey('raw-public', aliceKeypair.publicKey));
+                const alicePriv = new Uint8Array(await mlkem.exportKey('raw-seed', aliceKeypair.privateKey));
+                const bobPub = new Uint8Array(await mlkem.exportKey('raw-public', bobKeypair.publicKey));
+                const bobPriv = new Uint8Array(await mlkem.exportKey('raw-seed', bobKeypair.privateKey));
+
+                // Only export JWK private keys (which include public keys)
+                const alicePrivJwk = await mlkem.exportKey('jwk', aliceKeypair.privateKey);
+                const bobPrivJwk = await mlkem.exportKey('jwk', bobKeypair.privateKey);
+
+                // Tab state
+                let currentTab = 'hex';
+                document.getElementById('tab-bar').style.display = '';
+                document.getElementById('tab-hex').disabled = false;
+                document.getElementById('tab-jwk').disabled = false;
+                document.getElementById('tab-hex').classList.add('active');
+                document.getElementById('tab-jwk').classList.remove('active');
+
+                function renderKeypairTab(tab) {
+                    if (tab === 'hex') {
+                        showOutput('keypairOutput', `
+                            <strong>⏱️ Generated in ${time.toFixed(2)}ms</strong><br><br>
+                            <strong>Alice's Public Key (${alicePub.length} bytes):</strong><br>
+                            ${bytesToHex(alicePub)}<br><br>
+                            <strong>Alice's Private Key (${alicePriv.length} bytes):</strong><br>
+                            ${bytesToHex(alicePriv)}<br><br>
+                            <strong>Bob's Public Key (${bobPub.length} bytes):</strong><br>
+                            ${bytesToHex(bobPub)}<br><br>
+                            <strong>Bob's Private Key (${bobPriv.length} bytes):</strong><br>
+                            ${bytesToHex(bobPriv)}
+                        `);
+                    } else {
+                        showOutput('keypairOutput', `
+                            <strong>⏱️ Generated in ${time.toFixed(2)}ms</strong><br><br>
+                            <strong>Alice's Private Key (JWK):</strong><br>
+                            <pre>${JSON.stringify(alicePrivJwk, null, 2)}</pre><br>
+                            <strong>Bob's Private Key (JWK):</strong><br>
+                            <pre>${JSON.stringify(bobPrivJwk, null, 2)}</pre>
+                        `);
+                    }
+                }
+
+                renderKeypairTab(currentTab);
+
+                document.getElementById('tab-hex').onclick = function () {
+                    currentTab = 'hex';
+                    document.getElementById('tab-hex').classList.add('active');
+                    document.getElementById('tab-jwk').classList.remove('active');
+                    renderKeypairTab('hex');
+                };
+                document.getElementById('tab-jwk').onclick = function () {
+                    currentTab = 'jwk';
+                    document.getElementById('tab-jwk').classList.add('active');
+                    document.getElementById('tab-hex').classList.remove('active');
+                    renderKeypairTab('jwk');
+                };
+
+                document.getElementById('encapsulate').disabled = false;
+            } catch (error) {
+                showError('keypairOutput', error.message);
+            }
+        });
+
+
+        document.getElementById('encapsulate').addEventListener('click', async () => {
+            // Clear decapsulation and verify outputs, reset UI
+            showOutput('decapsulateOutput', '');
+            showOutput('verifyOutput', '');
+            document.getElementById('verify').disabled = true;
+
+            if (!bobKeypair) {
+                showError('encapsulateOutput', 'Please generate keypairs first');
+                return;
+            }
+            try {
+                const start = performance.now();
+                // Alice encapsulates to Bob's public key
+                encResult = await mlkem.encapsulateBits(
+                    { name: 'ML-KEM-768' },
+                    bobKeypair.publicKey
+                );
+                const time = performance.now() - start;
+
+                const ciphertext = new Uint8Array(encResult.ciphertext);
+                const sharedSecret = new Uint8Array(encResult.sharedKey);
+
+                showOutput('encapsulateOutput', `
+                    <strong>⏱️ Alice encapsulated to Bob's public key in ${time.toFixed(2)}ms</strong><br><br>
+                    <strong>Ciphertext (${ciphertext.length} bytes):</strong><br>
+                    ${bytesToHex(ciphertext)}<br><br>
+                    <strong>Alice's Shared Secret (${sharedSecret.length} bytes):</strong><br>
+                    ${bytesToHex(sharedSecret)}
+                `);
+
+                document.getElementById('decapsulate').disabled = false;
+            } catch (error) {
+                showError('encapsulateOutput', error.message);
+            }
+        });
+
+        document.getElementById('decapsulate').addEventListener('click', async () => {
+            if (!bobKeypair || !encResult) {
+                showError('decapsulateOutput', 'Please complete encapsulation first');
+                return;
+            }
+            try {
+                const start = performance.now();
+                // Bob decapsulates with his private key
+                decryptedSecret = await mlkem.decapsulateBits(
+                    { name: 'ML-KEM-768' },
+                    bobKeypair.privateKey,
+                    encResult.ciphertext
+                );
+                const time = performance.now() - start;
+
+                const decryptedSecretBytes = new Uint8Array(decryptedSecret);
+
+                showOutput('decapsulateOutput', `
+                    <strong>⏱️ Bob decapsulated with his private key in ${time.toFixed(2)}ms</strong><br><br>
+                    <strong>Bob's Shared Secret (${decryptedSecretBytes.length} bytes):</strong><br>
+                    ${bytesToHex(decryptedSecretBytes)}
+                `);
+
+                document.getElementById('verify').disabled = false;
+            } catch (error) {
+                showError('decapsulateOutput', error.message);
+            }
+        });
+
+        document.getElementById('verify').addEventListener('click', () => {
+            if (!encResult || !decryptedSecret) {
+                showError('verifyOutput', 'Please complete all previous steps first');
+                return;
+            }
+            const match = arraysEqual(encResult.sharedKey, decryptedSecret);
+            if (match) {
+                showSuccess('verifyOutput',
+                    'Shared secrets match! The key exchange was successful. 🎉<br>' +
+                    'Alice and Bob now have the same 32-byte shared secret that can be used for symmetric encryption.'
+                );
+            } else {
+                showError('verifyOutput', 'Shared secrets do not match! Something went wrong.');
+            }
+        });
+
+        document.getElementById('benchmark').addEventListener('click', async () => {
+            const iterations = 10000;
+            showOutput('benchmarkOutput', '🏃 Running benchmark...', 'loading');
+            setTimeout(async () => {
+                try {
+                    let keypairTime = 0;
+                    let encTime = 0;
+                    let decTime = 0;
+
+                    // Benchmark keypair generation
+                    const start1 = performance.now();
+                    for (let i = 0; i < iterations; i++) {
+                        await mlkem.generateKey(
+                            { name: 'ML-KEM-768' },
+                            true,
+                            ['encapsulateKey', 'encapsulateBits', 'decapsulateKey', 'decapsulateBits']
+                        );
+                    }
+                    keypairTime = performance.now() - start1;
+
+                    // Generate a keypair for enc/dec benchmark
+                    const benchKeypair = await mlkem.generateKey(
+                        { name: 'ML-KEM-768' },
+                        true,
+                        ['encapsulateKey', 'encapsulateBits', 'decapsulateKey', 'decapsulateBits']
+                    );
+
+                    // Benchmark encapsulation
+                    const start2 = performance.now();
+                    for (let i = 0; i < iterations; i++) {
+                        await mlkem.encapsulateBits(
+                            { name: 'ML-KEM-768' },
+                            benchKeypair.publicKey
+                        );
+                    }
+                    encTime = performance.now() - start2;
+
+                    // Benchmark decapsulation
+                    const benchEncResult = await mlkem.encapsulateBits(
+                        { name: 'ML-KEM-768' },
+                        benchKeypair.publicKey
+                    );
+                    const start3 = performance.now();
+                    for (let i = 0; i < iterations; i++) {
+                        await mlkem.decapsulateBits(
+                            { name: 'ML-KEM-768' },
+                            benchKeypair.privateKey,
+                            benchEncResult.ciphertext
+                        );
+                    }
+                    decTime = performance.now() - start3;
+
+                    showOutput('benchmarkOutput', `
+                        <div class="benchmark">
+                        <strong>🏁 Benchmark Results (${iterations} iterations each):</strong><br><br>
+                        <strong>Keypair Generation:</strong><br>
+                        • Total: ${keypairTime.toFixed(2)}ms<br>
+                        • Average: ${(keypairTime / iterations).toFixed(2)}ms per operation<br>
+                        • Throughput: ${(iterations * 1000 / keypairTime).toFixed(0)} ops/sec<br><br>
+
+                        <strong>Encapsulation:</strong><br>
+                        • Total: ${encTime.toFixed(2)}ms<br>
+                        • Average: ${(encTime / iterations).toFixed(2)}ms per operation<br>
+                        • Throughput: ${(iterations * 1000 / encTime).toFixed(0)} ops/sec<br><br>
+
+                        <strong>Decapsulation:</strong><br>
+                        • Total: ${decTime.toFixed(2)}ms<br>
+                        • Average: ${(decTime / iterations).toFixed(2)}ms per operation<br>
+                        • Throughput: ${(iterations * 1000 / decTime).toFixed(0)} ops/sec<br>
+                        </div>
+                    `);
+                } catch (error) {
+                    showError('benchmarkOutput', error.message);
+                }
+            }, 100);
+        });
+    </script>
+</body>
+
+</html>

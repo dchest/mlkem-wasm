@@ -1,0 +1,44 @@
+{
+  "name": "mlkem-wasm",
+  "version": "0.0.1",
+  "description": "ML-KEM-768 implementation using WebAssembly in a single JS file based on mlkem-native",
+  "main": "dist/mlkem.js",
+  "module": "dist/mlkem.js",
+  "type": "module",
+  "types": "types/mlkem.d.ts",
+  "scripts": {
+    "build": "npm run build:wasm && npm run build:bundle && npm run build:types",
+    "clean": "make -C src clean",
+    "test": "vitest run",
+    "build:wasm": "make -C src && node esbuild.config.js",
+    "build:bundle": "node esbuild.config.js",
+    "build:types": "tsc --declaration --emitDeclarationOnly --outDir types"
+  },
+  "keywords": [
+    "ml-kem",
+    "kyber",
+    "post-quantum",
+    "cryptography",
+    "webassembly",
+    "wasm",
+    "nist",
+    "pqc"
+  ],
+  "author": "Dmitry Chestnykh",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dchest/mlkem-wasm.git"
+  },
+  "files": [
+    "dist/",
+    "types/",
+    "README.md",
+    "LICENSE"
+  ],
+  "devDependencies": {
+    "esbuild": "^0.25.8",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.4"
+  }
+}
