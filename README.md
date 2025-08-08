@@ -18,7 +18,7 @@ Demo: <https://dchest.github.io/mlkem-wasm/>
 - Works in browsers and Node.js, and should work everywhere WebAssembly is supported.
 - Small: 50 KB unminified .js (16 KB gzipped / 14 KB brotlied).
 - Based on memory-safe, type-safe, high-performance C code ([mlkem-native](src/mlkem-native/README.md)).
-- A single, most common ML-KEY-768 algorithm, so there’s no need to choose between 512, 768, and 1024!
+- A single, most common ML-KEM-768 algorithm, so there’s no need to choose between 512, 768, and 1024!
 
 ## Limitations
 
