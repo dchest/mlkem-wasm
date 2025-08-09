@@ -493,6 +493,15 @@ var MlKem768 = class {
     }
     throw new MlKemNotSupportedError("Format not supported");
   }
+  #bufferSourcetoUint8Array(value) {
+    if (ArrayBuffer.isView(value) && value.buffer instanceof ArrayBuffer) {
+      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    } else if (value instanceof ArrayBuffer) {
+      return new Uint8Array(value);
+    } else {
+      throw new TypeError("Key data must be a BufferSource");
+    }
+  }
   async importKey(format, keyData, algorithm, extractable, usages) {
     this.#checkAlgorithm(algorithm);
     if (format === "raw-public") {
@@ -501,7 +510,7 @@ var MlKem768 = class {
       )) {
         throw new SyntaxError("Invalid key usages for public key");
       }
-      const data = ArrayBuffer.isView(keyData) ? new Uint8Array(keyData.buffer, keyData.byteOffset, keyData.byteLength) : new Uint8Array(keyData);
+      const data = this.#bufferSourcetoUint8Array(keyData);
       return new MlKemCryptoKey(
         { name: ALGORITHM_NAME },
         "public",
@@ -517,7 +526,7 @@ var MlKem768 = class {
       )) {
         throw new SyntaxError("Invalid key usages for private key");
       }
-      const data = ArrayBuffer.isView(keyData) ? new Uint8Array(keyData.buffer, keyData.byteOffset, keyData.byteLength) : new Uint8Array(keyData);
+      const data = this.#bufferSourcetoUint8Array(keyData);
       if (data.length !== KEYPAIR_RANDOM_BYTES) {
         throw new MlKemDataError("Invalid key length");
       }
@@ -693,11 +702,7 @@ var MlKem768 = class {
     if (!secretKeyData || secretKeyData.length !== SECRETKEY_BYTES) {
       throw new Error("Invalid secret key length");
     }
-    const ct = ArrayBuffer.isView(ciphertext) ? new Uint8Array(
-      ciphertext.buffer,
-      ciphertext.byteOffset,
-      ciphertext.byteLength
-    ) : new Uint8Array(ciphertext);
+    const ct = this.#bufferSourcetoUint8Array(ciphertext);
     if (ct.length !== CIPHERTEXT_BYTES) {
       throw new MlKemOperationError("Invalid ciphertext length");
     }

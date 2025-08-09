@@ -27,8 +27,12 @@ export type MlKemCryptoKeyPair = {
 declare class MlKem768 {
     #private;
     generateKey(keyAlgorithm: MlKemAlgorithm, extractable: boolean, usages: MlKemKeyUsage[]): Promise<MlKemCryptoKeyPair>;
-    exportKey(format: MlKemKeyFormat, key: MlKemCryptoKey): Promise<ArrayBuffer | JsonWebKey>;
-    importKey(format: MlKemKeyFormat, keyData: ArrayBuffer | ArrayBufferView<ArrayBuffer>, algorithm: MlKemAlgorithm, extractable: boolean, usages: MlKemKeyUsage[]): Promise<MlKemCryptoKey>;
+    exportKey(format: "jwk", // JWK format returns a JsonWebKey
+    key: MlKemCryptoKey): Promise<JsonWebKey>;
+    exportKey(format: Exclude<MlKemKeyFormat, "jwk">, // other formats return an ArrayBuffer
+    key: MlKemCryptoKey): Promise<ArrayBuffer>;
+    importKey(format: "jwk", keyData: JsonWebKey, algorithm: MlKemAlgorithm, extractable: boolean, usages: MlKemKeyUsage[]): Promise<MlKemCryptoKey>;
+    importKey(format: Exclude<MlKemKeyFormat, "jwk">, keyData: BufferSource, algorithm: MlKemAlgorithm, extractable: boolean, usages: MlKemKeyUsage[]): Promise<MlKemCryptoKey>;
     encapsulateBits(algorithm: MlKemAlgorithm, encapsulationKey: MlKemCryptoKey): Promise<{
         ciphertext: ArrayBuffer;
         sharedKey: ArrayBuffer;

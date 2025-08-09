@@ -276,7 +276,18 @@ class MlKem768 {
     };
   }
 
-  async exportKey(format: MlKemKeyFormat, key: MlKemCryptoKey) {
+  async exportKey(
+    format: "jwk", // JWK format returns a JsonWebKey
+    key: MlKemCryptoKey
+  ): Promise<JsonWebKey>;
+  async exportKey(
+    format: Exclude<MlKemKeyFormat, "jwk">, // other formats return an ArrayBuffer
+    key: MlKemCryptoKey
+  ): Promise<ArrayBuffer>;
+  async exportKey(
+    format: MlKemKeyFormat,
+    key: MlKemCryptoKey
+  ): Promise<ArrayBuffer | JsonWebKey> {
     // 1. If the underlying cryptographic key material represented by the
     // [[handle]] internal slot of key cannot be accessed, then throw an
     // OperationError.
@@ -342,13 +353,37 @@ class MlKem768 {
     throw new MlKemNotSupportedError("Format not supported");
   }
 
+  #bufferSourcetoUint8Array(value: unknown): Uint8Array<ArrayBuffer> {
+    if (ArrayBuffer.isView(value) && value.buffer instanceof ArrayBuffer) {
+      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    } else if (value instanceof ArrayBuffer) {
+      return new Uint8Array(value);
+    } else {
+      throw new TypeError("Key data must be a BufferSource");
+    }
+  }
+
   async importKey(
-    format: MlKemKeyFormat,
-    keyData: ArrayBuffer | ArrayBufferView<ArrayBuffer>,
+    format: "jwk",
+    keyData: JsonWebKey,
     algorithm: MlKemAlgorithm,
     extractable: boolean,
     usages: MlKemKeyUsage[]
-  ) {
+  ): Promise<MlKemCryptoKey>;
+  async importKey(
+    format: Exclude<MlKemKeyFormat, "jwk">,
+    keyData: BufferSource,
+    algorithm: MlKemAlgorithm,
+    extractable: boolean,
+    usages: MlKemKeyUsage[]
+  ): Promise<MlKemCryptoKey>;
+  async importKey(
+    format: MlKemKeyFormat,
+    keyData: BufferSource | JsonWebKey,
+    algorithm: MlKemAlgorithm,
+    extractable: boolean,
+    usages: MlKemKeyUsage[]
+  ): Promise<MlKemCryptoKey> {
     this.#checkAlgorithm(algorithm);
     // 1. If format is "raw-public":
     if (format === "raw-public") {
@@ -363,9 +398,7 @@ class MlKem768 {
         throw new SyntaxError("Invalid key usages for public key");
       }
       // 1.2. Let data be keyData.
-      const data = ArrayBuffer.isView(keyData)
-        ? new Uint8Array(keyData.buffer, keyData.byteOffset, keyData.byteLength)
-        : new Uint8Array(keyData);
+      const data = this.#bufferSourcetoUint8Array(keyData);
       // 1.3. Let key be a new CryptoKey that represents the ML-KEM public key
       // data in data.
       // 1.4. Set the [[type]] internal slot of key to "public"
@@ -381,6 +414,7 @@ class MlKem768 {
         data
       );
     }
+    // 1. If format is "raw-seed":
     if (format === "raw-seed") {
       // 1.1. If usages contains an entry which is not "decapsulateKey" or
       // "decapsulateBits" then throw a SyntaxError.
@@ -393,9 +427,7 @@ class MlKem768 {
         throw new SyntaxError("Invalid key usages for private key");
       }
       // 1.2. Let data be keyData.
-      const data = ArrayBuffer.isView(keyData)
-        ? new Uint8Array(keyData.buffer, keyData.byteOffset, keyData.byteLength)
-        : new Uint8Array(keyData);
+      const data = this.#bufferSourcetoUint8Array(keyData);
       // 1.3. If the length in bits of data is not 512 then throw a DataError.
       if (data.length !== KEYPAIR_RANDOM_BYTES) {
         throw new MlKemDataError("Invalid key length");
@@ -701,13 +733,7 @@ class MlKem768 {
     if (!secretKeyData || secretKeyData.length !== SECRETKEY_BYTES) {
       throw new Error("Invalid secret key length");
     }
-    const ct = ArrayBuffer.isView(ciphertext)
-      ? new Uint8Array(
-          ciphertext.buffer,
-          ciphertext.byteOffset,
-          ciphertext.byteLength
-        )
-      : new Uint8Array(ciphertext);
+    const ct = this.#bufferSourcetoUint8Array(ciphertext);
     if (ct.length !== CIPHERTEXT_BYTES) {
       throw new MlKemOperationError("Invalid ciphertext length");
     }

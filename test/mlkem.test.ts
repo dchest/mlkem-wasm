@@ -228,6 +228,22 @@ describe("MlKem768 API", () => {
       ).rejects.toThrow(expect.objectContaining({ name: "SyntaxError" }));
     });
 
+    it("should throw TypeError for invalid data type in importKey raw-public", async () => {
+      await expect(
+        mlkem.importKey("raw-public", [1, 2, 3], { name: "ML-KEM-768" }, true, [
+          "encapsulateKey",
+        ])
+      ).rejects.toThrow(expect.objectContaining({ name: "TypeError" }));
+    });
+
+    it("should throw TypeError for invalid data type in importKey raw-seed", async () => {
+      await expect(
+        mlkem.importKey("raw-seed", [1, 2, 3], { name: "ML-KEM-768" }, true, [
+          "decapsulateKey",
+        ])
+      ).rejects.toThrow(expect.objectContaining({ name: "TypeError" }));
+    });
+
     it("should throw SyntaxError for invalid usages in importKey raw-seed", async () => {
       await expect(
         mlkem.importKey(
