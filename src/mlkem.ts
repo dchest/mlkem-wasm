@@ -121,6 +121,10 @@ class MlKemCryptoKey {
 }
 
 export type { MlKemCryptoKey };
+export type MlKemCryptoKeyPair = {
+  publicKey: MlKemCryptoKey;
+  privateKey: MlKemCryptoKey;
+};
 
 function toBase64url(data: Uint8Array<ArrayBuffer>): string {
   return btoa(String.fromCharCode(...data))
@@ -199,7 +203,7 @@ class MlKem768 {
     keyAlgorithm: MlKemAlgorithm,
     extractable: boolean,
     usages: MlKemKeyUsage[]
-  ) {
+  ): Promise<MlKemCryptoKeyPair> {
     this.#checkAlgorithm(keyAlgorithm);
 
     // 1. If usages contains any entry which is not one of "encapsulateKey",

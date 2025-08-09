@@ -20,12 +20,13 @@ declare class MlKemCryptoKey {
     get [_privateSecretKey](): Uint8Array<ArrayBuffer> | null;
 }
 export type { MlKemCryptoKey };
+export type MlKemCryptoKeyPair = {
+    publicKey: MlKemCryptoKey;
+    privateKey: MlKemCryptoKey;
+};
 declare class MlKem768 {
     #private;
-    generateKey(keyAlgorithm: MlKemAlgorithm, extractable: boolean, usages: MlKemKeyUsage[]): Promise<{
-        publicKey: MlKemCryptoKey;
-        privateKey: MlKemCryptoKey;
-    }>;
+    generateKey(keyAlgorithm: MlKemAlgorithm, extractable: boolean, usages: MlKemKeyUsage[]): Promise<MlKemCryptoKeyPair>;
     exportKey(format: MlKemKeyFormat, key: MlKemCryptoKey): Promise<ArrayBuffer | JsonWebKey>;
     importKey(format: MlKemKeyFormat, keyData: ArrayBuffer | ArrayBufferView<ArrayBuffer>, algorithm: MlKemAlgorithm, extractable: boolean, usages: MlKemKeyUsage[]): Promise<MlKemCryptoKey>;
     encapsulateBits(algorithm: MlKemAlgorithm, encapsulationKey: MlKemCryptoKey): Promise<{
