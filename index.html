@@ -155,7 +155,7 @@
             <strong>About ML-KEM-768:</strong><br>
             ML-KEM-768 (formerly Kyber-768) is a quantum-resistant key encapsulation mechanism
             standardized by NIST. This demo shows the WebAssembly implementation running
-            directly in your browser.
+            directly in your browser. (Also available as <code>mlkem</code> in the browser's console.)
             <br><br>
             Source code and docs: <a href="https://github.com/dchest/mlkem-wasm">github.com/dchest/mlkem-wasm</a>
             <br>
@@ -204,6 +204,9 @@
 
     <script type="module">
         import mlkem from './dist/mlkem.js';
+
+        // Make it available in console.
+        window.mlkem = mlkem;
 
         let keypair = null;
         let aliceKeypair = null;
