@@ -16,16 +16,16 @@ Demo: <https://dchest.github.io/mlkem-wasm/>
 - API compatible with the [WebCrypto API draft for modern algorithms](https://twiss.github.io/webcrypto-modern-algos/) (when it ships, replace `mlkem` with `crypto.subtle` and burn this package).
 - All code and WASM are bundled into a single `dist/mlkem.js` ES module (no external `.wasm` files needed).
 - Works in browsers and Node.js, and should work everywhere WebAssembly is supported.
-- Small: 50 KB unminified .js (16 KB gzipped / 14 KB brotlied).
+- Small: 51 KB unminified .js (16 KB gzipped / 14 KB brotlied).
 - Based on memory-safe, type-safe, high-performance C code ([mlkem-native](src/mlkem-native/README.md)).
 - A single, most common ML-KEM-768 algorithm, so there’s no need to choose between 512, 768, and 1024!
 
 ## Limitations
 
-- `MlKemCryptoKey` is not WebCrypto's `CryptoKey`, so you cannot, for example, save them to IndexedDB without exporting or use `wrapKey` on them. You can only use them with this library's methods. (You can however encapsulate and decapsulate exportable WebCrypto `CryptoKey` objects.)
-- Key material is in JavaScript memory hiding inside array buffers in `MlKemCryptoKey`.
+- The `CryptoKey` returned by this module's `generateKey` and `importKey` has the same prototype as WebCrypto's `CryptoKey`, but cannot be cloned with `structuredClone`, so you cannot, for example, save them to IndexedDB, pass them to a worker, or use `wrapKey` on them, without exporting. You can only use them with this library's methods. (You can, however, encapsulate and decapsulate exportable WebCrypto `CryptoKey` objects.) Cloning is deliberately disabled to prevent compatibility issues with the future WebCrypto API (e.g., you saved an `mlkem-wasm` key to IndexedDB, and then switched to the native WebCrypto API, which has its own internal key format and cannot deserialize it).
+- Key material is not accessible from outside of the module (that is, you should not be able to get raw key data without exporting), but is somewhere in JavaScript memory until garbage collected. The module takes care to wipe key data from memory during garbage collection, but JavaScript runtimes may optimize this cleanup away.
 - Operations, while asynchronous on the surface (all functions are `async` to be compatible and to be able to load the WASM module without a separate initialization call), are done synchronously, instead of being fully asynchronous like in the WebCrypto API. You may consider it an improvement.
-- Base64 encoding and decoding for JWK is not constant-time (not sure if it is in other implementations except BoringSSL).
+- Base64 encoding and decoding for JWK is not constant-time (not sure if it is in other implementations except BoringSSL, though).
 
 ## Installation
 
@@ -184,36 +184,36 @@ All API methods are asynchronous and return Promises. See [Modern Algorithms in 
 
 ### `mlkem.generateKey(algorithm, extractable, usages)`
 
-- **algorithm**: `{ name: "ML-KEM-768" }` or string
+- **algorithm**: `{ name: "ML-KEM-768" }` or `"ML-KEM-768"`
 - **extractable**: `boolean` (for private key)
 - **usages**: array of usages: `"encapsulateKey"`, `"encapsulateBits"`, `"decapsulateKey"`, `"decapsulateBits"`
-- **Returns**: `{ publicKey, privateKey }` (both are `MlKemCryptoKey`)
+- **Returns**: `{ publicKey, privateKey }` (both are `CryptoKey`)
 
 ### `mlkem.exportKey(format, key)`
 
 - **format**: `"raw-public"`, `"raw-seed"`, or `"jwk"`
-- **key**: `MlKemCryptoKey`
+- **key**: `CryptoKey`
 - **Returns**: `ArrayBuffer` or `JsonWebKey`
 
 ### `mlkem.importKey(format, keyData, algorithm, extractable, usages)`
 
 - **format**: `"raw-public"`, `"raw-seed"`, or `"jwk"`
 - **keyData**: `ArrayBuffer`, typed array, or `JsonWebKey`
-- **algorithm**: `{ name: "ML-KEM-768" }` or string
+- **algorithm**: `{ name: "ML-KEM-768" }` or `"ML-KEM-768"`
 - **extractable**: `boolean`
 - **usages**: array of usages
-- **Returns**: `MlKemCryptoKey`
+- **Returns**: `CryptoKey`
 
 ### `mlkem.encapsulateBits(algorithm, encapsulationKey)`
 
-- **algorithm**: `{ name: "ML-KEM-768" }` or string
-- **encapsulationKey**: public `MlKemCryptoKey`
+- **algorithm**: `{ name: "ML-KEM-768" }` or `"ML-KEM-768"`
+- **encapsulationKey**: public `CryptoKey`
 - **Returns**: `{ ciphertext, sharedKey }` (both `ArrayBuffer`)
 
 ### `mlkem.encapsulateKey(encapsulationAlgorithm, encapsulationKey, sharedKeyAlgorithm, extractable, usages)`
 
-- **encapsulationAlgorithm**: `{ name: "ML-KEM-768" }` or string
-- **encapsulationKey**: public `MlKemCryptoKey`
+- **encapsulationAlgorithm**: `{ name: "ML-KEM-768" }` or `"ML-KEM-768"`
+- **encapsulationKey**: public `CryptoKey`
 - **sharedKeyAlgorithm**: WebCrypto KeyAlgorithm (e.g., `{ name: "AES-GCM" }`)
 - **extractable**: `boolean`
 - **usages**: usages for the shared key
@@ -221,24 +221,32 @@ All API methods are asynchronous and return Promises. See [Modern Algorithms in 
 
 ### `mlkem.decapsulateBits(decapsulationAlgorithm, decapsulationKey, ciphertext)`
 
-- **decapsulationAlgorithm**: `{ name: "ML-KEM-768" }` or string
-- **decapsulationKey**: private `MlKemCryptoKey`
+- **decapsulationAlgorithm**: `{ name: "ML-KEM-768" }` or `"ML-KEM-768"`
+- **decapsulationKey**: private `CryptoKey`
 - **ciphertext**: `ArrayBuffer` or typed array
 - **Returns**: `ArrayBuffer` (shared key)
 
 ### `mlkem.decapsulateKey(decapsulationAlgorithm, decapsulationKey, ciphertext, sharedKeyAlgorithm, extractable, usages)`
 
-- **decapsulationAlgorithm**: `{ name: "ML-KEM-768" }` or string
-- **decapsulationKey**: private `MlKemCryptoKey`
+- **decapsulationAlgorithm**: `{ name: "ML-KEM-768" }` or `"ML-KEM-768"`
+- **decapsulationKey**: private `CryptoKey`
 - **ciphertext**: `ArrayBuffer` or typed array
 - **sharedKeyAlgorithm**: WebCrypto KeyAlgorithm
 - **extractable**: `boolean`
 - **usages**: usages for the shared key
 - **Returns**: `CryptoKey`
 
+### `mlkem._isSupportedCryptoKey(key)`
+
+Non-spec method to check if a `CryptoKey` was created by this library.
+You can use it to distinguish WebCrypto's native keys from `mlkem-wasm` keys.
+
+- **key**: `CryptoKey`
+- **Returns**: `boolean`
+
 ### Types
 
-- `MlKemCryptoKey`: Internal key object, not compatible with WebCrypto's `CryptoKey`.
+- `CryptoKey`: Internal key object, not compatible with WebCrypto's `CryptoKey`.
 - Usages: `"encapsulateKey"`, `"encapsulateBits"`, `"decapsulateKey"`, `"decapsulateBits"`
 - Formats: `"raw-public"`, `"raw-seed"`, `"jwk"`
 
@@ -296,7 +304,7 @@ Here are some checkboxes:
 - [x] there are no modifications to the original `mlkem-native` code.
 - [x] there are 0 (zero) non-dev dependencies in `package.json`.
 - [x] the JavaScript code is not minified.
-- [x] build artifacts (except for .o) are commited to the repository.
+- [x] build artifacts (except for .o) are committed to the repository.
 
 If your company wants to pay to get some other checkboxes from me, please contact me directly.
 

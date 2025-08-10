@@ -327,48 +327,69 @@ var MlKemDataError = class extends Error {
     this.name = "DataError";
   }
 };
-var _publicKeyData = Symbol();
-var _privateSeed = Symbol();
-var _privateSecretKey = Symbol();
-var MlKemCryptoKey = class {
-  #algorithm;
-  #type;
-  #usages;
-  #extractable;
-  #publicKeyData;
-  #privateSeed;
-  #privateSecretKey;
-  constructor(algorithm, type, usages, extractable, publicKeyData, privateSeed = null, privateSecretKey = null) {
-    this.#algorithm = algorithm;
-    this.#type = type;
-    this.#usages = usages;
-    this.#extractable = extractable;
-    this.#publicKeyData = publicKeyData;
-    this.#privateSeed = privateSeed;
-    this.#privateSecretKey = privateSecretKey;
+var internalKeyData = /* @__PURE__ */ new WeakMap();
+function getInternalKeyData(key) {
+  const keyData = internalKeyData.get(key);
+  if (!keyData) {
+    throw new TypeError("Unknown key object");
   }
-  get algorithm() {
-    return this.#algorithm;
+  return keyData;
+}
+var cleanupRegistry = new FinalizationRegistry((keyData) => {
+  keyData.publicKeyData.fill(0);
+  keyData.privateSeedData?.fill(0);
+  keyData.privateSecretKeyData?.fill(0);
+});
+function getPublicKeyDataRef(key) {
+  const keyData = getInternalKeyData(key);
+  if (!keyData.publicKeyData) {
+    throw new MlKemOperationError("Failed to get public key data");
   }
-  get type() {
-    return this.#type;
+  return keyData.publicKeyData;
+}
+function getPrivateKeyDataRef(key) {
+  const keyData = getInternalKeyData(key);
+  if (!keyData.privateSeedData || !keyData.privateSecretKeyData) {
+    throw new MlKemOperationError("Failed to get private key data");
   }
-  get usages() {
-    return this.#usages;
-  }
-  get extractable() {
-    return this.#extractable;
-  }
-  get [_publicKeyData]() {
-    return this.#publicKeyData;
-  }
-  get [_privateSeed]() {
-    return this.#privateSeed;
-  }
-  get [_privateSecretKey]() {
-    return this.#privateSecretKey;
-  }
-};
+  return keyData;
+}
+var noClone = Symbol("CryptoKey created by mlkem-wasm cannot be cloned");
+var keyIdKey = "_mlkem_wasm";
+var emptyToJSON = () => ({});
+function createKeyObject(type, extractable, usages, keyData) {
+  const key = {
+    type,
+    extractable,
+    algorithm: Object.freeze({ name: ALGORITHM_NAME }),
+    usages: Object.freeze(Array.from(usages)),
+    [keyIdKey]: noClone
+    // to prevent structured cloning
+  };
+  Object.defineProperty(key, "toJSON", {
+    value: emptyToJSON,
+    writable: false,
+    enumerable: false,
+    configurable: false
+  });
+  Object.setPrototypeOf(key, CryptoKey.prototype);
+  internalKeyData.set(key, keyData);
+  cleanupRegistry.register(key, keyData);
+  return Object.freeze(key);
+}
+function createPublicKey(publicKeyData, usages) {
+  return createKeyObject("public", true, usages, { publicKeyData });
+}
+function createPrivateKey(publicKeyData, privateSeedData, privateSecretKeyData, extractable, usages) {
+  return createKeyObject("private", extractable, usages, {
+    publicKeyData,
+    privateSeedData,
+    privateSecretKeyData
+  });
+}
+function _isSupportedCryptoKey(key) {
+  return key instanceof CryptoKey && keyIdKey in key && key[keyIdKey] == noClone && internalKeyData.has(key);
+}
 function toBase64url(data) {
   return btoa(String.fromCharCode(...data)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
@@ -383,376 +404,366 @@ var CIPHERTEXT_BYTES = 1088;
 var SHARED_SECRET_BYTES = 32;
 var KEYPAIR_RANDOM_BYTES = 64;
 var ENC_RANDOM_BYTES = 32;
-var MlKem768 = class {
-  #module;
-  async #getModule() {
-    if (!this.#module) {
-      this.#module = await wasm_module_default();
-    }
-    return this.#module;
+var _module;
+async function getModule() {
+  if (!_module) {
+    _module = await wasm_module_default();
   }
-  #checkAlgorithm(algorithm) {
-    const name = typeof algorithm === "string" ? algorithm : typeof algorithm === "object" && algorithm !== null ? algorithm.name : null;
-    if (name !== ALGORITHM_NAME) {
-      throw new TypeError("Unsupported algorithm");
-    }
+  return _module;
+}
+var getRandomValues = crypto.getRandomValues.bind(crypto);
+function checkAlgorithm(algorithm) {
+  const name = typeof algorithm === "string" ? algorithm.toUpperCase() : typeof algorithm === "object" && algorithm !== null && "name" in algorithm && typeof algorithm.name === "string" ? algorithm.name.toUpperCase() : null;
+  if (name !== ALGORITHM_NAME) {
+    throw new TypeError("Unsupported algorithm");
   }
-  async #generateKeyPair(coins) {
-    const module = await this.#getModule();
-    const stackSave = module.stackSave();
-    try {
-      const pkPtr = module.stackAlloc(PUBLICKEY_BYTES);
-      const skPtr = module.stackAlloc(SECRETKEY_BYTES);
-      const coinsPtr = module.stackAlloc(KEYPAIR_RANDOM_BYTES);
-      module.HEAPU8.set(coins, coinsPtr);
-      const result = module._mlkem768_keypair_derand(pkPtr, skPtr, coinsPtr);
-      if (result !== 0) {
-        throw new MlKemOperationError("Key generation failed");
-      }
-      const rawPublicKey = new Uint8Array(PUBLICKEY_BYTES);
-      const rawSecretKey = new Uint8Array(SECRETKEY_BYTES);
-      const rawSeed = new Uint8Array(coins);
-      rawPublicKey.set(module.HEAPU8.subarray(pkPtr, pkPtr + PUBLICKEY_BYTES));
-      rawSecretKey.set(module.HEAPU8.subarray(skPtr, skPtr + SECRETKEY_BYTES));
-      module.HEAPU8.fill(0, pkPtr, pkPtr + PUBLICKEY_BYTES);
-      module.HEAPU8.fill(0, skPtr, skPtr + SECRETKEY_BYTES);
-      module.HEAPU8.fill(0, coinsPtr, coinsPtr + KEYPAIR_RANDOM_BYTES);
-      return { rawPublicKey, rawSecretKey, rawSeed };
-    } finally {
-      module.stackRestore(stackSave);
+}
+async function internalGenerateKeyPair(coins) {
+  const module = await getModule();
+  const stackSave = module.stackSave();
+  try {
+    const pkPtr = module.stackAlloc(PUBLICKEY_BYTES);
+    const skPtr = module.stackAlloc(SECRETKEY_BYTES);
+    const coinsPtr = module.stackAlloc(KEYPAIR_RANDOM_BYTES);
+    module.HEAPU8.set(coins, coinsPtr);
+    const result = module._mlkem768_keypair_derand(pkPtr, skPtr, coinsPtr);
+    if (result !== 0) {
+      throw new MlKemOperationError("Key generation failed");
     }
+    const rawPublicKey = new Uint8Array(PUBLICKEY_BYTES);
+    const rawSecretKey = new Uint8Array(SECRETKEY_BYTES);
+    const rawSeed = new Uint8Array(coins);
+    rawPublicKey.set(module.HEAPU8.subarray(pkPtr, pkPtr + PUBLICKEY_BYTES));
+    rawSecretKey.set(module.HEAPU8.subarray(skPtr, skPtr + SECRETKEY_BYTES));
+    module.HEAPU8.fill(0, pkPtr, pkPtr + PUBLICKEY_BYTES);
+    module.HEAPU8.fill(0, skPtr, skPtr + SECRETKEY_BYTES);
+    module.HEAPU8.fill(0, coinsPtr, coinsPtr + KEYPAIR_RANDOM_BYTES);
+    return { rawPublicKey, rawSecretKey, rawSeed };
+  } finally {
+    module.stackRestore(stackSave);
   }
-  async generateKey(keyAlgorithm, extractable, usages) {
-    this.#checkAlgorithm(keyAlgorithm);
-    if (!Array.isArray(usages) || usages.some((usage) => !KEY_USAGES.includes(usage))) {
-      throw new SyntaxError("Invalid key usages");
+}
+async function generateKey(keyAlgorithm, extractable, usages) {
+  checkAlgorithm(keyAlgorithm);
+  if (!Array.isArray(usages) || usages.some((usage) => !KEY_USAGES.includes(usage))) {
+    throw new SyntaxError("Invalid key usages");
+  }
+  const { rawPublicKey, rawSecretKey, rawSeed } = await internalGenerateKeyPair(
+    getRandomValues(new Uint8Array(KEYPAIR_RANDOM_BYTES))
+  );
+  const publicKey = createPublicKey(
+    rawPublicKey,
+    usages.filter(
+      (usage) => usage === "encapsulateKey" || usage === "encapsulateBits"
+    )
+  );
+  const privateKey = createPrivateKey(
+    rawPublicKey,
+    rawSeed,
+    rawSecretKey,
+    extractable,
+    usages.filter(
+      (usage) => usage === "decapsulateKey" || usage === "decapsulateBits"
+    )
+  );
+  return {
+    publicKey,
+    privateKey
+  };
+}
+async function exportKey(format, key) {
+  if (!(key instanceof CryptoKey)) {
+    throw new TypeError("Expected key to be an instance of CryptoKey");
+  }
+  checkAlgorithm(key.algorithm);
+  if (!key.extractable) {
+    throw new MlKemOperationError("Key is not extractable");
+  }
+  if (format === "raw-public") {
+    if (key.type !== "public") {
+      throw new TypeError("Expected key type to be 'public'");
     }
-    const { rawPublicKey, rawSecretKey, rawSeed } = await this.#generateKeyPair(
-      crypto.getRandomValues(new Uint8Array(KEYPAIR_RANDOM_BYTES))
-    );
-    const algorithm = { name: ALGORITHM_NAME };
-    const publicKey = new MlKemCryptoKey(
-      algorithm,
-      "public",
-      usages.filter(
-        (usage) => usage === "encapsulateKey" || usage === "encapsulateBits"
-      ),
-      true,
-      rawPublicKey
-    );
-    const privateKey = new MlKemCryptoKey(
-      algorithm,
-      "private",
-      usages.filter(
-        (usage) => usage === "decapsulateKey" || usage === "decapsulateBits"
-      ),
-      extractable,
+    return new Uint8Array(getPublicKeyDataRef(key)).buffer;
+  }
+  if (format === "raw-seed") {
+    if (key.type !== "private") {
+      throw new MlKemInvalidAccessError("Expected key type to be 'private'");
+    }
+    return new Uint8Array(getPrivateKeyDataRef(key).privateSeedData).buffer;
+  }
+  if (format === "jwk") {
+    const jwk = {
+      // 2.2. Set the kty attribute of jwk to "AKP".
+      kty: "AKP",
+      // 2.3. Set the alg attribute of jwk to the alg value corresponding to
+      // the name member of normalizedAlgorithm indicated in Section 8 of
+      // [draft-ietf-jose-pqc-kem-01] (Figure 1).
+      alg: JWK_ALG,
+      // 2.4. Set the pub attribute of jwk to the base64url encoded public
+      // key corresponding to the [[handle]] internal slot of key.
+      pub: toBase64url(getPublicKeyDataRef(key))
+    };
+    if (key.type === "private") {
+      jwk.priv = toBase64url(getPrivateKeyDataRef(key).privateSeedData);
+    }
+    jwk.key_ops = key.usages;
+    jwk.ext = key.extractable;
+    return jwk;
+  }
+  throw new MlKemNotSupportedError("Format not supported");
+}
+function bufferSourcetoUint8Array(value) {
+  if (ArrayBuffer.isView(value) && value.buffer instanceof ArrayBuffer) {
+    return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+  } else if (value instanceof ArrayBuffer) {
+    return new Uint8Array(value);
+  } else {
+    throw new TypeError("Value must be a BufferSource");
+  }
+}
+function bufferSourcetoUint8ArrayCopy(value) {
+  return bufferSourcetoUint8Array(value).slice();
+}
+async function importKey(format, keyData, algorithm, extractable, usages) {
+  checkAlgorithm(algorithm);
+  if (format === "raw-public") {
+    if (!Array.isArray(usages) || usages.some(
+      (usage) => usage !== "encapsulateKey" && usage !== "encapsulateBits"
+    )) {
+      throw new SyntaxError("Invalid key usages for public key");
+    }
+    const data = bufferSourcetoUint8ArrayCopy(keyData);
+    return createPublicKey(data, usages);
+  }
+  if (format === "raw-seed") {
+    if (!Array.isArray(usages) || usages.some(
+      (usage) => usage !== "decapsulateKey" && usage !== "decapsulateBits"
+    )) {
+      throw new SyntaxError("Invalid key usages for private key");
+    }
+    const data = bufferSourcetoUint8ArrayCopy(keyData);
+    if (data.length !== KEYPAIR_RANDOM_BYTES) {
+      throw new MlKemDataError("Invalid key length");
+    }
+    const { rawPublicKey, rawSecretKey, rawSeed } = await internalGenerateKeyPair(data);
+    return createPrivateKey(
       rawPublicKey,
       rawSeed,
-      rawSecretKey
+      rawSecretKey,
+      extractable,
+      usages
     );
-    return {
-      publicKey,
-      privateKey
-    };
   }
-  async exportKey(format, key) {
-    if (!key.extractable) {
-      throw new MlKemOperationError("Key is not extractable");
-    }
-    if (format === "raw-public") {
-      if (key.type !== "public") {
-        throw new TypeError("Expected key type to be 'public'");
-      }
-      return new Uint8Array(key[_publicKeyData]).buffer;
-    }
-    if (format === "raw-seed") {
-      if (key.type !== "private") {
-        throw new MlKemInvalidAccessError("Expected key type to be 'private'");
-      }
-      return new Uint8Array(key[_privateSeed]).buffer;
-    }
-    if (format === "jwk") {
-      const jwk = {
-        // 2.2. Set the kty attribute of jwk to "AKP".
-        kty: "AKP",
-        // 2.3. Set the alg attribute of jwk to the alg value corresponding to
-        // the name member of normalizedAlgorithm indicated in Section 8 of
-        // [draft-ietf-jose-pqc-kem-01] (Figure 1).
-        alg: JWK_ALG,
-        // 2.4. Set the pub attribute of jwk to the base64url encoded public
-        // key corresponding to the [[handle]] internal slot of key.
-        pub: toBase64url(key[_publicKeyData])
-      };
-      if (key.type === "private") {
-        jwk.priv = toBase64url(key[_privateSeed]);
-      }
-      jwk.key_ops = key.usages;
-      jwk.ext = key.extractable;
-      return jwk;
-    }
-    throw new MlKemNotSupportedError("Format not supported");
-  }
-  #bufferSourcetoUint8Array(value) {
-    if (ArrayBuffer.isView(value) && value.buffer instanceof ArrayBuffer) {
-      return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
-    } else if (value instanceof ArrayBuffer) {
-      return new Uint8Array(value);
-    } else {
-      throw new TypeError("Key data must be a BufferSource");
-    }
-  }
-  async importKey(format, keyData, algorithm, extractable, usages) {
-    this.#checkAlgorithm(algorithm);
-    if (format === "raw-public") {
-      if (!Array.isArray(usages) || usages.some(
-        (usage) => usage !== "encapsulateKey" && usage !== "encapsulateBits"
-      )) {
-        throw new SyntaxError("Invalid key usages for public key");
-      }
-      const data = this.#bufferSourcetoUint8Array(keyData);
-      return new MlKemCryptoKey(
-        { name: ALGORITHM_NAME },
-        "public",
-        usages,
-        true,
-        // extractable
-        data
+  if (format === "jwk") {
+    if (typeof keyData !== "object" || keyData === null) {
+      throw new MlKemDataError(
+        "Expected keyData to be a JsonWebKey dictionary"
       );
     }
-    if (format === "raw-seed") {
-      if (!Array.isArray(usages) || usages.some(
-        (usage) => usage !== "decapsulateKey" && usage !== "decapsulateBits"
-      )) {
-        throw new SyntaxError("Invalid key usages for private key");
-      }
-      const data = this.#bufferSourcetoUint8Array(keyData);
-      if (data.length !== KEYPAIR_RANDOM_BYTES) {
-        throw new MlKemDataError("Invalid key length");
-      }
-      const { rawPublicKey, rawSecretKey, rawSeed } = await this.#generateKeyPair(data);
-      return new MlKemCryptoKey(
-        { name: ALGORITHM_NAME },
-        "private",
-        usages,
-        true,
-        // extractable
-        rawPublicKey,
-        rawSeed,
-        rawSecretKey
-      );
+    const jwk = keyData;
+    if (jwk.priv && usages.some(
+      (usage) => usage !== "decapsulateKey" && usage !== "decapsulateBits"
+    )) {
+      throw new SyntaxError("Invalid key usages for private key");
     }
-    if (format === "jwk") {
-      if (typeof keyData !== "object" || keyData === null) {
-        throw new MlKemDataError(
-          "Expected keyData to be a JsonWebKey dictionary"
+    if (!jwk.priv && usages.some(
+      (usage) => usage !== "encapsulateKey" && usage !== "encapsulateBits"
+    )) {
+      throw new SyntaxError("Invalid key usages for public key");
+    }
+    if (jwk.kty !== "AKP") {
+      throw new MlKemDataError("Invalid key type");
+    }
+    if (jwk.alg !== JWK_ALG && jwk.alg !== "ML-KEM-768+A192KW") {
+      throw new MlKemDataError("Invalid algorithm");
+    }
+    if (usages.length > 0 && jwk.use && jwk.use !== "enc") {
+      throw new MlKemDataError("Invalid key usage");
+    }
+    if (jwk.key_ops && Array.isArray(jwk.key_ops) && !Array.prototype.every.call(
+      jwk.key_ops,
+      (op) => KEY_USAGES.includes(op)
+    ) || !Array.isArray(jwk.key_ops)) {
+      throw new MlKemDataError("Invalid key operations");
+    }
+    if (jwk.ext === false && extractable) {
+      throw new MlKemDataError("Invalid key extractability");
+    }
+    if (jwk.priv) {
+      try {
+        const seedData = fromBase64url(jwk.priv);
+        if (seedData.length !== KEYPAIR_RANDOM_BYTES) {
+          throw new MlKemDataError("Invalid private key length");
+        }
+        const { rawPublicKey, rawSecretKey, rawSeed } = await internalGenerateKeyPair(seedData);
+        const key = createPrivateKey(
+          rawPublicKey,
+          rawSeed,
+          rawSecretKey,
+          extractable,
+          usages
         );
-      }
-      const jwk = keyData;
-      if (jwk.priv && usages.some(
-        (usage) => usage !== "decapsulateKey" && usage !== "decapsulateBits"
-      )) {
-        throw new SyntaxError("Invalid key usages for private key");
-      }
-      if (!jwk.priv && usages.some(
-        (usage) => usage !== "encapsulateKey" && usage !== "encapsulateBits"
-      )) {
-        throw new SyntaxError("Invalid key usages for public key");
-      }
-      if (jwk.kty !== "AKP") {
-        throw new MlKemDataError("Invalid key type");
-      }
-      if (jwk.alg !== JWK_ALG && jwk.alg !== "ML-KEM-768+A192KW") {
-        throw new MlKemDataError("Invalid algorithm");
-      }
-      if (usages.length > 0 && jwk.use && jwk.use !== "enc") {
-        throw new MlKemDataError("Invalid key usage");
-      }
-      if (jwk.key_ops && Array.isArray(jwk.key_ops) && !Array.prototype.every.call(
-        jwk.key_ops,
-        (op) => KEY_USAGES.includes(op)
-      ) || !Array.isArray(jwk.key_ops)) {
-        throw new MlKemDataError("Invalid key operations");
-      }
-      if (jwk.ext === false && extractable) {
-        throw new MlKemDataError("Invalid key extractability");
-      }
-      if (jwk.priv) {
-        try {
-          const seedData = fromBase64url(jwk.priv);
-          if (seedData.length !== KEYPAIR_RANDOM_BYTES) {
-            throw new MlKemDataError("Invalid private key length");
-          }
-          const { rawPublicKey, rawSecretKey, rawSeed } = await this.#generateKeyPair(seedData);
-          const key = new MlKemCryptoKey(
-            { name: ALGORITHM_NAME },
-            "private",
-            usages,
-            extractable,
-            rawPublicKey,
-            rawSeed,
-            rawSecretKey
-          );
-          if (toBase64url(rawPublicKey) !== jwk.pub) {
-            throw new MlKemDataError("Invalid public key data");
-          }
-          return key;
-        } catch {
-          throw new MlKemDataError("Invalid private key format");
+        if (toBase64url(rawPublicKey) !== jwk.pub) {
+          throw new MlKemDataError("Invalid public key data");
         }
-      } else {
-        try {
-          const publicKeyData = fromBase64url(jwk.pub);
-          if (publicKeyData.length !== PUBLICKEY_BYTES) {
-            throw new MlKemDataError("Invalid public key data");
-          }
-          return new MlKemCryptoKey(
-            { name: ALGORITHM_NAME },
-            "public",
-            usages,
-            extractable,
-            publicKeyData
-          );
-        } catch {
-          throw new MlKemDataError("Invalid public key format");
+        return key;
+      } catch {
+        throw new MlKemDataError("Invalid private key format");
+      }
+    } else {
+      try {
+        const publicKeyData = fromBase64url(jwk.pub);
+        if (publicKeyData.length !== PUBLICKEY_BYTES) {
+          throw new MlKemDataError("Invalid public key data");
         }
+        return createPublicKey(publicKeyData, usages);
+      } catch {
+        throw new MlKemDataError("Invalid public key format");
       }
     }
-    throw new MlKemNotSupportedError("Unsupported key format");
   }
-  // Internal: implements encapsulateBits without checking key usages.
-  async #encapsulate(algorithm, encapsulationKey, usage) {
-    const module = await this.#getModule();
-    this.#checkAlgorithm(algorithm);
-    if (!(encapsulationKey instanceof MlKemCryptoKey) || encapsulationKey.type !== "public") {
-      throw new MlKemInvalidAccessError(
-        "Expected publicKey to be an instance of MlKemCryptoKey with type 'public'"
-      );
-    }
-    if (!encapsulationKey.usages.includes(usage)) {
-      throw new MlKemInvalidAccessError(`Key usages don't include '${usage}'`);
-    }
-    const publicKeyData = encapsulationKey[_publicKeyData];
-    if (publicKeyData.length !== PUBLICKEY_BYTES) {
-      throw new MlKemOperationError("Invalid public key length");
-    }
-    const coins = crypto.getRandomValues(new Uint8Array(ENC_RANDOM_BYTES));
-    const stackSave = module.stackSave();
-    try {
-      const pkPtr = module.stackAlloc(PUBLICKEY_BYTES);
-      const ctPtr = module.stackAlloc(CIPHERTEXT_BYTES);
-      const ssPtr = module.stackAlloc(SHARED_SECRET_BYTES);
-      const coinsPtr = module.stackAlloc(ENC_RANDOM_BYTES);
-      module.HEAPU8.set(publicKeyData, pkPtr);
-      module.HEAPU8.set(coins, coinsPtr);
-      const result = module._mlkem768_enc_derand(ctPtr, ssPtr, pkPtr, coinsPtr);
-      if (result !== 0) {
-        throw new MlKemOperationError("Encapsulation failed");
-      }
-      const ciphertext = new Uint8Array(CIPHERTEXT_BYTES);
-      const sharedKey = new Uint8Array(SHARED_SECRET_BYTES);
-      ciphertext.set(module.HEAPU8.subarray(ctPtr, ctPtr + CIPHERTEXT_BYTES));
-      sharedKey.set(module.HEAPU8.subarray(ssPtr, ssPtr + SHARED_SECRET_BYTES));
-      module.HEAPU8.fill(0, ctPtr, ctPtr + CIPHERTEXT_BYTES);
-      module.HEAPU8.fill(0, ssPtr, ssPtr + SHARED_SECRET_BYTES);
-      module.HEAPU8.fill(0, pkPtr, pkPtr + PUBLICKEY_BYTES);
-      module.HEAPU8.fill(0, coinsPtr, coinsPtr + ENC_RANDOM_BYTES);
-      return {
-        ciphertext: ciphertext.buffer,
-        sharedKey: sharedKey.buffer
-      };
-    } finally {
-      module.stackRestore(stackSave);
-    }
-  }
-  async encapsulateBits(algorithm, encapsulationKey) {
-    return this.#encapsulate(algorithm, encapsulationKey, "encapsulateBits");
-  }
-  async encapsulateKey(encapsulationAlgorithm, encapsulationKey, sharedKeyAlgorithm, extractable, usages) {
-    const { sharedKey: sharedKeyBits, ciphertext } = await this.#encapsulate(
-      encapsulationAlgorithm,
-      encapsulationKey,
-      "encapsulateKey"
+  throw new MlKemNotSupportedError("Unsupported key format");
+}
+async function internalEncapsulate(algorithm, encapsulationKey, usage) {
+  const module = await getModule();
+  checkAlgorithm(algorithm);
+  if (!(encapsulationKey instanceof CryptoKey) || encapsulationKey.type !== "public") {
+    throw new MlKemInvalidAccessError(
+      "Expected publicKey to be an instance of MlKemCryptoKey with type 'public'"
     );
-    const sharedKey = await crypto.subtle.importKey(
-      "raw",
-      sharedKeyBits,
-      sharedKeyAlgorithm,
-      extractable,
-      usages
-    );
+  }
+  if (!encapsulationKey.usages.includes(usage)) {
+    throw new MlKemInvalidAccessError(`Key usages don't include '${usage}'`);
+  }
+  const publicKeyData = getPublicKeyDataRef(encapsulationKey);
+  if (publicKeyData.length !== PUBLICKEY_BYTES) {
+    throw new MlKemOperationError("Invalid public key length");
+  }
+  const coins = getRandomValues(new Uint8Array(ENC_RANDOM_BYTES));
+  const stackSave = module.stackSave();
+  try {
+    const pkPtr = module.stackAlloc(PUBLICKEY_BYTES);
+    const ctPtr = module.stackAlloc(CIPHERTEXT_BYTES);
+    const ssPtr = module.stackAlloc(SHARED_SECRET_BYTES);
+    const coinsPtr = module.stackAlloc(ENC_RANDOM_BYTES);
+    module.HEAPU8.set(publicKeyData, pkPtr);
+    module.HEAPU8.set(coins, coinsPtr);
+    const result = module._mlkem768_enc_derand(ctPtr, ssPtr, pkPtr, coinsPtr);
+    if (result !== 0) {
+      throw new MlKemOperationError("Encapsulation failed");
+    }
+    const ciphertext = new Uint8Array(CIPHERTEXT_BYTES);
+    const sharedKey = new Uint8Array(SHARED_SECRET_BYTES);
+    ciphertext.set(module.HEAPU8.subarray(ctPtr, ctPtr + CIPHERTEXT_BYTES));
+    sharedKey.set(module.HEAPU8.subarray(ssPtr, ssPtr + SHARED_SECRET_BYTES));
+    module.HEAPU8.fill(0, ctPtr, ctPtr + CIPHERTEXT_BYTES);
+    module.HEAPU8.fill(0, ssPtr, ssPtr + SHARED_SECRET_BYTES);
+    module.HEAPU8.fill(0, pkPtr, pkPtr + PUBLICKEY_BYTES);
+    module.HEAPU8.fill(0, coinsPtr, coinsPtr + ENC_RANDOM_BYTES);
     return {
-      sharedKey,
-      ciphertext
+      ciphertext: ciphertext.buffer,
+      sharedKey: sharedKey.buffer
     };
+  } finally {
+    module.stackRestore(stackSave);
   }
-  // Internal: implements decapsulateBits without checking key usages.
-  async #decapsulate(algorithm, decapsulationKey, ciphertext, usage) {
-    const module = await this.#getModule();
-    this.#checkAlgorithm(algorithm);
-    if (!(decapsulationKey instanceof MlKemCryptoKey) || decapsulationKey.type !== "private") {
-      throw new MlKemInvalidAccessError(
-        "Expected key to be an instance of MlKemCryptoKey with type 'private'"
-      );
-    }
-    if (!decapsulationKey.usages.includes(usage)) {
-      throw new MlKemInvalidAccessError(`Key usages don't include '${usage}'`);
-    }
-    const secretKeyData = decapsulationKey[_privateSecretKey];
-    if (!secretKeyData || secretKeyData.length !== SECRETKEY_BYTES) {
-      throw new Error("Invalid secret key length");
-    }
-    const ct = this.#bufferSourcetoUint8Array(ciphertext);
-    if (ct.length !== CIPHERTEXT_BYTES) {
-      throw new MlKemOperationError("Invalid ciphertext length");
-    }
-    const stackSave = module.stackSave();
-    try {
-      const ctPtr = module.stackAlloc(CIPHERTEXT_BYTES);
-      const skPtr = module.stackAlloc(SECRETKEY_BYTES);
-      const ssPtr = module.stackAlloc(SHARED_SECRET_BYTES);
-      module.HEAPU8.set(ct, ctPtr);
-      module.HEAPU8.set(secretKeyData, skPtr);
-      const result = module._mlkem768_dec(ssPtr, ctPtr, skPtr);
-      if (result !== 0) {
-        throw new MlKemOperationError("Decapsulation failed");
-      }
-      const sharedKey = new Uint8Array(SHARED_SECRET_BYTES);
-      sharedKey.set(module.HEAPU8.subarray(ssPtr, ssPtr + SHARED_SECRET_BYTES));
-      module.HEAPU8.fill(0, ctPtr, ctPtr + CIPHERTEXT_BYTES);
-      module.HEAPU8.fill(0, skPtr, skPtr + SECRETKEY_BYTES);
-      module.HEAPU8.fill(0, ssPtr, ssPtr + SHARED_SECRET_BYTES);
-      return sharedKey.buffer;
-    } finally {
-      module.stackRestore(stackSave);
-    }
-  }
-  async decapsulateBits(decapsulationAlgorithm, decapsulationKey, ciphertext) {
-    return this.#decapsulate(
-      decapsulationAlgorithm,
-      decapsulationKey,
-      ciphertext,
-      "decapsulateBits"
+}
+async function encapsulateBits(algorithm, encapsulationKey) {
+  return internalEncapsulate(algorithm, encapsulationKey, "encapsulateBits");
+}
+async function encapsulateKey(encapsulationAlgorithm, encapsulationKey, sharedKeyAlgorithm, extractable, usages) {
+  const { sharedKey: sharedKeyBits, ciphertext } = await internalEncapsulate(
+    encapsulationAlgorithm,
+    encapsulationKey,
+    "encapsulateKey"
+  );
+  const sharedKey = await crypto.subtle.importKey(
+    "raw",
+    sharedKeyBits,
+    sharedKeyAlgorithm,
+    extractable,
+    usages
+  );
+  return {
+    sharedKey,
+    ciphertext
+  };
+}
+async function internalDecapsulate(algorithm, decapsulationKey, ciphertext, usage) {
+  const module = await getModule();
+  checkAlgorithm(algorithm);
+  if (!(decapsulationKey instanceof CryptoKey) || decapsulationKey.type !== "private") {
+    throw new MlKemInvalidAccessError(
+      "Expected key to be an instance of MlKemCryptoKey with type 'private'"
     );
   }
-  async decapsulateKey(decapsulationAlgorithm, decapsulationKey, ciphertext, sharedKeyAlgorithm, extractable, usages) {
-    const sharedKeyBits = await this.#decapsulate(
-      decapsulationAlgorithm,
-      decapsulationKey,
-      ciphertext,
-      "decapsulateKey"
-    );
-    const sharedKey = await crypto.subtle.importKey(
-      "raw",
-      sharedKeyBits,
-      sharedKeyAlgorithm,
-      extractable,
-      usages
-    );
-    return sharedKey;
+  if (!decapsulationKey.usages.includes(usage)) {
+    throw new MlKemInvalidAccessError(`Key usages don't include '${usage}'`);
   }
+  const secretKeyData = getPrivateKeyDataRef(decapsulationKey).privateSecretKeyData;
+  if (!secretKeyData || secretKeyData.length !== SECRETKEY_BYTES) {
+    throw new Error("Invalid secret key length");
+  }
+  const ct = bufferSourcetoUint8Array(ciphertext);
+  if (ct.length !== CIPHERTEXT_BYTES) {
+    throw new MlKemOperationError("Invalid ciphertext length");
+  }
+  const stackSave = module.stackSave();
+  try {
+    const ctPtr = module.stackAlloc(CIPHERTEXT_BYTES);
+    const skPtr = module.stackAlloc(SECRETKEY_BYTES);
+    const ssPtr = module.stackAlloc(SHARED_SECRET_BYTES);
+    module.HEAPU8.set(ct, ctPtr);
+    module.HEAPU8.set(secretKeyData, skPtr);
+    const result = module._mlkem768_dec(ssPtr, ctPtr, skPtr);
+    if (result !== 0) {
+      throw new MlKemOperationError("Decapsulation failed");
+    }
+    const sharedKey = new Uint8Array(SHARED_SECRET_BYTES);
+    sharedKey.set(module.HEAPU8.subarray(ssPtr, ssPtr + SHARED_SECRET_BYTES));
+    module.HEAPU8.fill(0, ctPtr, ctPtr + CIPHERTEXT_BYTES);
+    module.HEAPU8.fill(0, skPtr, skPtr + SECRETKEY_BYTES);
+    module.HEAPU8.fill(0, ssPtr, ssPtr + SHARED_SECRET_BYTES);
+    return sharedKey.buffer;
+  } finally {
+    module.stackRestore(stackSave);
+  }
+}
+async function decapsulateBits(decapsulationAlgorithm, decapsulationKey, ciphertext) {
+  return internalDecapsulate(
+    decapsulationAlgorithm,
+    decapsulationKey,
+    ciphertext,
+    "decapsulateBits"
+  );
+}
+async function decapsulateKey(decapsulationAlgorithm, decapsulationKey, ciphertext, sharedKeyAlgorithm, extractable, usages) {
+  const sharedKeyBits = await internalDecapsulate(
+    decapsulationAlgorithm,
+    decapsulationKey,
+    ciphertext,
+    "decapsulateKey"
+  );
+  const sharedKey = await crypto.subtle.importKey(
+    "raw",
+    sharedKeyBits,
+    sharedKeyAlgorithm,
+    extractable,
+    usages
+  );
+  return sharedKey;
+}
+var mlkem = {
+  generateKey,
+  exportKey,
+  importKey,
+  encapsulateBits,
+  encapsulateKey,
+  decapsulateBits,
+  decapsulateKey,
+  _isSupportedCryptoKey
 };
-var mlkem_default = new MlKem768();
+var mlkem_default = mlkem;
 export {
   mlkem_default as default
 };
