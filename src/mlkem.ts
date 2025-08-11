@@ -11,7 +11,7 @@
  * https://github.com/pq-code-package/mlkem-native/blob/main/LICENSE
  *
  * WASM wrapper license: MIT License
- * Copyright (c) 2023 Dmitry Chestnykh
+ * Copyright (c) 2025 Dmitry Chestnykh
  */
 import MLKEM768Module from "./build/wasm-module.js";
 
