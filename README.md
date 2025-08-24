@@ -4,7 +4,7 @@
 
 This package provides a WebAssembly-based implementation of ML-KEM-768, based on [mlkem-native](https://github.com/pq-code-package/mlkem-native). It exposes a modern, WebCrypto-compatible API for key generation, encapsulation, and decapsulation, all bundled in a single JavaScript file with the WASM module inlined.
 
-Use it as a stopgap solution until the [WebCrypto API supports ML-KEM natively](https://twiss.github.io/webcrypto-modern-algos/).
+Use it as a stopgap solution until the [WebCrypto API supports ML-KEM natively](https://wicg.github.io/webcrypto-modern-algos/).
 
 Demo: <https://dchest.github.io/mlkem-wasm/>
 
@@ -13,10 +13,10 @@ Demo: <https://dchest.github.io/mlkem-wasm/>
 
 ## Features
 
-- API compatible with the [WebCrypto API draft for modern algorithms](https://twiss.github.io/webcrypto-modern-algos/) (when it ships, replace `mlkem` with `crypto.subtle` and burn this package).
+- API compatible with the [WebCrypto API draft for modern algorithms](https://wicg.github.io/webcrypto-modern-algos/) (when it ships, replace `mlkem` with `crypto.subtle` and burn this package).
 - All code and WASM are bundled into a single `dist/mlkem.js` ES module (no external `.wasm` files needed).
 - Works in browsers and Node.js, and should work everywhere WebAssembly is supported.
-- Small: 51 KB unminified .js (16 KB gzipped / 14 KB brotlied).
+- Small: 53 KB unminified .js (17 KB gzipped / 14 KB brotlied).
 - Based on memory-safe, type-safe, high-performance C code ([mlkem-native](src/mlkem-native/README.md)).
 - A single, most common ML-KEM-768 algorithm, so there’s no need to choose between 512, 768, and 1024!
 
@@ -26,6 +26,7 @@ Demo: <https://dchest.github.io/mlkem-wasm/>
 - Key material is not accessible from outside of the module (that is, you should not be able to get raw key data without exporting), but is somewhere in JavaScript memory until garbage collected. The module takes care to wipe key data from memory during garbage collection, but JavaScript runtimes may optimize this cleanup away.
 - Operations, while asynchronous on the surface (all functions are `async` to be compatible and to be able to load the WASM module without a separate initialization call), are done synchronously, instead of being fully asynchronous like in the WebCrypto API. You may consider it an improvement.
 - Base64 encoding and decoding for JWK is not constant-time (not sure if it is in other implementations except BoringSSL, though).
+- `pkcs8` import only supports the seed format of private keys (as nature intended).
 
 ## Installation
 
@@ -180,7 +181,7 @@ const importedJwkPublicKey = await mlkem.importKey(
 
 ## API Reference
 
-All API methods are asynchronous and return Promises. See [Modern Algorithms in the Web Cryptography API](https://twiss.github.io/webcrypto-modern-algos/) for details.
+All API methods are asynchronous and return Promises. See [Modern Algorithms in the Web Cryptography API](https://wicg.github.io/webcrypto-modern-algos/) for details.
 
 ### `mlkem.generateKey(algorithm, extractable, usages)`
 
@@ -191,13 +192,13 @@ All API methods are asynchronous and return Promises. See [Modern Algorithms in 
 
 ### `mlkem.exportKey(format, key)`
 
-- **format**: `"raw-public"`, `"raw-seed"`, or `"jwk"`
+- **format**: `"raw-public"`, `"raw-seed"`, `"jwk"`, `"pkcs8"` or `"spki"`
 - **key**: `CryptoKey`
 - **Returns**: `ArrayBuffer` or `JsonWebKey`
 
 ### `mlkem.importKey(format, keyData, algorithm, extractable, usages)`
 
-- **format**: `"raw-public"`, `"raw-seed"`, or `"jwk"`
+- **format**: `"raw-public"`, `"raw-seed"`, `"jwk"`, `"pkcs8"` or `"spki"`
 - **keyData**: `ArrayBuffer`, typed array, or `JsonWebKey`
 - **algorithm**: `{ name: "ML-KEM-768" }` or `"ML-KEM-768"`
 - **extractable**: `boolean`
@@ -236,6 +237,12 @@ All API methods are asynchronous and return Promises. See [Modern Algorithms in 
 - **usages**: usages for the shared key
 - **Returns**: `CryptoKey`
 
+### `mlkem.getPublicKey(key, usages)`
+
+- **key**: private `CryptoKey`
+- **usages**: array of usages for the returned public key (`"encapsulateKey"`, `"encapsulateBits"`)
+- **Returns**: public `CryptoKey`
+
 ### `mlkem._isSupportedCryptoKey(key)`
 
 Non-spec method to check if a `CryptoKey` was created by this library.
@@ -248,7 +255,7 @@ You can use it to distinguish WebCrypto's native keys from `mlkem-wasm` keys.
 
 - `CryptoKey`: Internal key object, not compatible with WebCrypto's `CryptoKey`.
 - Usages: `"encapsulateKey"`, `"encapsulateBits"`, `"decapsulateKey"`, `"decapsulateBits"`
-- Formats: `"raw-public"`, `"raw-seed"`, `"jwk"`
+- Formats: `"raw-public"`, `"raw-seed"`, `"jwk"`, `"pkcs8"`, `"spki"`
 
 ## When WebCrypto API ships
 

@@ -5,7 +5,7 @@
  * Provides an API compatible with the WebCrypto API proposed in
  * "Modern Algorithms in the Web Cryptography API,"
  * Draft Community Group Report, 08 August 2025:
- * <https://twiss.github.io/webcrypto-modern-algos/>.
+ * <https://wicg.github.io/webcrypto-modern-algos/>.
  *
  * mlkem-native license:
  * https://github.com/pq-code-package/mlkem-native/blob/main/LICENSE
@@ -32,7 +32,13 @@ export type MlKemKeyUsage =
   | "encapsulateBits"
   | "decapsulateKey"
   | "decapsulateBits";
-export type MlKemKeyFormat = "raw-public" | "raw-seed" | "jwk";
+
+export type MlKemKeyFormat =
+  | "raw-public"
+  | "raw-seed"
+  | "jwk"
+  | "spki"
+  | "pkcs8";
 
 export type EncapsulatedKey = {
   sharedKey: CryptoKey;
@@ -354,6 +360,34 @@ async function exportKey(
     throw new MlKemOperationError("Key is not extractable");
   }
 
+  // 2. If format is "spki":
+  if (format === "spki") {
+    // 2.1. If the [[type]] internal slot of key is not "public", then throw
+    // an InvalidAccessError.
+    if (key.type !== "public") {
+      throw new TypeError("Expected key type to be 'public'");
+    }
+    // 2.2. Let data be an instance of the SubjectPublicKeyInfo ASN.1 structure
+    // defined in [RFC5280] with the following properties: ...
+    // 2.3. Let result be the result of DER-encoding data.
+    // 2.3. Let result be data.
+    return rawToDer(MLKEM768_SPKI, getPublicKeyDataRef(key)).buffer; // copy
+  }
+
+  // 2. If format is "pkcs8":
+  if (format === "pkcs8") {
+    // 2.1. If the [[type]] internal slot of key is not "private", then throw
+    // an InvalidAccessError.
+    if (key.type !== "private") {
+      throw new MlKemInvalidAccessError("Expected key type to be 'private'");
+    }
+    // 2.2. Let data be an instance of the PrivateKeyInfo ASN.1 structure
+    // defined in [RFC5208] with the following properties: ...
+    // 2.3. Let result be the result of DER-encoding data.
+    return rawToDer(MLKEM768_PKCS8, getPrivateKeyDataRef(key).privateSeedData)
+      .buffer; // copy
+  }
+
   // 2. If format is "raw-public":
   if (format === "raw-public") {
     // 2.1. If the [[type]] internal slot of key is not "public", then throw
@@ -426,6 +460,60 @@ function bufferSourcetoUint8ArrayCopy(value: unknown): Uint8Array<ArrayBuffer> {
   return bufferSourcetoUint8Array(value).slice();
 }
 
+type DEREncoding = { fullLength: number; prefix: Uint8Array };
+
+const MLKEM768_SPKI: DEREncoding = {
+  fullLength: 1206,
+  prefix: new Uint8Array([
+    0x30, 0x82, 0x04, 0xb2, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01,
+    0x65, 0x03, 0x04, 0x04, 0x02, 0x03, 0x82, 0x04, 0xa1, 0x00,
+  ]),
+};
+
+const MLKEM768_PKCS8: DEREncoding = {
+  fullLength: 86,
+  prefix: new Uint8Array([
+    0x30, 0x54, 0x02, 0x01, 0x00, 0x30, 0x0b, 0x06, 0x09, 0x60, 0x86, 0x48,
+    0x01, 0x65, 0x03, 0x04, 0x04, 0x02, 0x04, 0x42, 0x80, 0x40,
+  ]),
+};
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff === 0;
+}
+
+function derToRaw(
+  encoding: DEREncoding,
+  der: Uint8Array
+): Uint8Array<ArrayBuffer> {
+  if (der.length !== encoding.fullLength) {
+    throw new MlKemDataError("Invalid encoding");
+  }
+  const prefix = der.subarray(0, encoding.prefix.length);
+  if (!bytesEqual(prefix, encoding.prefix)) {
+    // XXX: could also be DataError, but we can't distinguish it with simple parser.
+    throw new MlKemNotSupportedError("Unsupported encoding");
+  }
+  return der.slice(encoding.prefix.length);
+}
+
+function rawToDer(
+  encoding: DEREncoding,
+  raw: Uint8Array
+): Uint8Array<ArrayBuffer> {
+  const der = new Uint8Array(encoding.fullLength);
+  der.set(encoding.prefix);
+  der.set(raw, encoding.prefix.length);
+  return der;
+}
+
 async function importKey(
   format: "jwk",
   keyData: JsonWebKey,
@@ -448,6 +536,54 @@ async function importKey(
   usages: MlKemKeyUsage[]
 ): Promise<CryptoKey> {
   checkAlgorithm(algorithm);
+  // 1. If format is "spki":
+  if (format === "spki") {
+    // If usages contains an entry which is not "encapsulateKey" or "encapsulateBits" then throw a SyntaxError.
+    if (
+      !Array.isArray(usages) ||
+      usages.some(
+        (usage) => usage !== "encapsulateKey" && usage !== "encapsulateBits"
+      )
+    ) {
+      throw new SyntaxError("Invalid key usages for public key");
+    }
+    // Let spki be the result of running the parse a subjectPublicKeyInfo algorithm over keyData.
+    // If an error occurred while parsing, then throw a DataError.
+    const data = derToRaw(MLKEM768_SPKI, bufferSourcetoUint8Array(keyData));
+    if (data.length !== PUBLICKEY_BYTES) {
+      throw new MlKemDataError("Invalid key length");
+    }
+    return createPublicKey(data, usages);
+  }
+
+  // 1. If format is "pkcs8":
+  if (format === "pkcs8") {
+    // If usages contains an entry which is not "decapsulateKey" or "decapsulateBits" then throw a SyntaxError.
+    if (
+      !Array.isArray(usages) ||
+      usages.some(
+        (usage) => usage !== "decapsulateKey" && usage !== "decapsulateBits"
+      )
+    ) {
+      throw new SyntaxError("Invalid key usages for private key");
+    }
+    // Let pkcs8 be the result of running the parse a PrivateKeyInfo algorithm over keyData.
+    // If an error occurred while parsing, then throw a DataError.
+    const data = derToRaw(MLKEM768_PKCS8, bufferSourcetoUint8Array(keyData));
+    if (data.length !== KEYPAIR_RANDOM_BYTES) {
+      throw new MlKemDataError("Invalid key length");
+    }
+    const { rawPublicKey, rawSecretKey, rawSeed } =
+      await internalGenerateKeyPair(data);
+    return createPrivateKey(
+      rawPublicKey,
+      rawSeed,
+      rawSecretKey,
+      extractable,
+      usages
+    );
+  }
+
   // 1. If format is "raw-public":
   if (format === "raw-public") {
     // 1.1. If usages contains an entry which is not "encapsulateKey" or
@@ -630,6 +766,29 @@ async function importKey(
     }
   }
   throw new MlKemNotSupportedError("Unsupported key format");
+}
+
+export function getPublicKey(key: CryptoKey, usages: MlKemKeyUsage[]) {
+  if (!(key instanceof CryptoKey)) {
+    throw new TypeError("Expected key to be an instance of CryptoKey");
+  }
+  checkAlgorithm(key.algorithm);
+  if (key.type !== "private") {
+    throw new MlKemInvalidAccessError("Expected key type to be 'private'");
+  }
+  if (
+    !Array.isArray(usages) ||
+    usages.some(
+      (usage) => usage !== "encapsulateKey" && usage !== "encapsulateBits"
+    )
+  ) {
+    throw new SyntaxError("Invalid key usages");
+  }
+  const keyData = getInternalKeyData(key);
+  if (!keyData.publicKeyData) {
+    throw new MlKemOperationError("Failed to get public key data");
+  }
+  return createPublicKey(new Uint8Array(keyData.publicKeyData), usages);
 }
 
 // Internal: implements encapsulateBits without checking key usages.
@@ -860,6 +1019,7 @@ const mlkem = {
   generateKey,
   exportKey,
   importKey,
+  getPublicKey,
   encapsulateBits,
   encapsulateKey,
   decapsulateBits,

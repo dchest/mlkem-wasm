@@ -469,6 +469,18 @@ describe("MlKem768 API", () => {
     expect(privateKey.type).toBe("private");
   });
 
+  it("should get public key from private key", async () => {
+    const { publicKey, privateKey } = await mlkem.generateKey(
+      { name: "ML-KEM-768" },
+      true,
+      ["encapsulateKey", "decapsulateKey"]
+    );
+    const derived = await mlkem.getPublicKey(privateKey, ["encapsulateKey"]);
+    const raw1 = await mlkem.exportKey("raw-public", publicKey);
+    const raw2 = await mlkem.exportKey("raw-public", derived);
+    expect(new Uint8Array(raw1)).toEqual(new Uint8Array(raw2));
+  });
+
   it("should export and import public key (raw-public)", async () => {
     const { publicKey } = await mlkem.generateKey(
       { name: "ML-KEM-768" },
@@ -549,6 +561,93 @@ describe("MlKem768 API", () => {
     // Export again and compare
     const rawSeed2 = await mlkem.exportKey("raw-seed", imported);
     expect(new Uint8Array(rawSeed2)).toEqual(new Uint8Array(rawSeed));
+  });
+
+  // Decode PEM, convert to DER ArrayBuffer.
+  const pemToDer = (armor: string) => {
+    const b64 = armor.replace(
+      /-----BEGIN (?:PUBLIC|PRIVATE) KEY-----|-----END (?:PUBLIC|PRIVATE) KEY-----|\s+/g,
+      ""
+    );
+    return Uint8Array.from(atob(b64), (c) => c.charCodeAt(0)).buffer;
+  };
+
+  // Example keys from
+  // https://datatracker.ietf.org/doc/draft-ietf-lamps-kyber-certificates/
+  const exampleSPKIPublicKey = `
+   -----BEGIN PUBLIC KEY-----
+   MIIEsjALBglghkgBZQMEBAIDggShACmKoQ1CPI3aBp0CvFnmzfA6CWuLPaTKubgM
+   pKFJB2cszvHsT68jSgvFt+nUc/KzEzs7JqHRdctnp4BZGWmcAvdlMbmcX4kYBwS7
+   TKRTXFuJcmecZgoHxeUUuHAJyGLrj1FXaV77P8QKne9rgcHMAqJJrk8JStDZvTSF
+   wcHGgIBSCnyMYyAyzuc4FU5cUXbAfaVgJHdqQw/nbqz2ZaP3uDIQIhW8gvEJOcg1
+   VwQzao+sHYHkuwSFql18dNa1m75cXpcqDYusQRtVtdVVfNaAoaj3G064a8SMmgUJ
+   cxpUvZ1ykLJ5Y+Q3Lcmxmc/crAsBrNKKYjlREuTENkjWIsSMgjTQFEDozDdskn8j
+   pa/JrAR0xmInTkJFJchVLs47P+JlFt6QG8fVFb3olVjmJslcgLkzQvgBAATznmxs
+   lIccXjRMqzlmyDX5qWpZr9McQChrOLHBp4RwurlHUYk0RTzoZzapGfH1ptUQqG9U
+   VPw5gMtcdlvSvV97NrFBDWY1yM60fE3aDXaijqyTnHHDAkgEhmxxYmZYRCFjwsIh
+   F+UKzvzmN4qYVlIwKk7wws4Mxxa3eW4ray43d9+hrD2iWaMbWptTD4y2OKgaYqww
+   GEmrr5WnMBvaMAaJCb/bfmfbzLs4pVUaJbGjoPaFdIrVdT2IgPABbGJ0hhZjhMVX
+   H+I2WQA2TQODEeLYdds2ZoaTK17GAkMKNp6Hpu9cM4eGZXglvUwFes65I+sJNeaQ
+   XmO0ztf4CFenc91ksVDSZhLqmsEgUtsgF78YQ8y0sygbaQ3HKK36hcACgbjjwJKH
+   M1+Fa0/CiS9povV5Ia2gGRTECYhmLVd2lmKnhjUbm2ZJPat5WU2YbeIQDWW6D/Tq
+   WLgVONJKRDWiWPrCVASqf0H2WLE4UGXhWNy2ARVzJyD0BFmqrBXkBpU6kKxSmX0c
+   zQcAYO/GXbnmUzVEZ/rVbscTyG51QMQjrPJmn1L6b0rGiI2HHvPoR8ApqKr7uS4X
+   skqgebH0GbphdbRCr7EZCdSla3CgM1soc5IYqnyTSOLDwvPrPRWkHmQXwN2Uv+sh
+   QZsxGnuxOhgLvoMyGKmmsXRHzIXyJYWVh6cwdwSay8/UTQ8CVDjhXRU4Jw1Ybhv4
+   MZKpRZz2PA6XL4UpdnmDHs8SFQmFHLg0D28Qew+hoO/Rs2qBibwIXE9ct4TlU/Qb
+   kY+AOXzhlW94W+43fKmqi+aZitowwmt8PYxrVSVMyWIDsgxCruCsTh67QI5JqeP4
+   edCrB4XrcCVCXRMFoimcAV4SDRY7DhlJTOVyU9AkbRgnRcuBl6t0OLPBu3lyvsWj
+   BuujVnhVwBRpn+9lrlTHcKDYXBhADPZCrtxmB3e6SxOFAr1aeBL2IfhKSClrmN1D
+   IrbxWCi4qPDgCoukSlPDqLFDVxsHQKvVZ9rxzenHnCBLbV4lnRdmoxu7y05qBc9F
+   AhdrMBwcL0Ekd1AVe87IXoCbMKTWDXdHzdD1uZqoyCaYdRd5OqqAgKCxJKhVjfcr
+   vje3X07btr6CFtbGM/srIoDiURPYaV5DSBw+6zl+sZJQUim2eiAeqJPD4ssy2ovD
+   QvpN6gV4
+   -----END PUBLIC KEY-----
+    `;
+
+  const examplePKCS8PrivateKey = `
+     -----BEGIN PRIVATE KEY-----
+   MFQCAQAwCwYJYIZIAWUDBAQCBEKAQAABAgMEBQYHCAkKCwwNDg8QERITFBUWFxgZ
+   GhscHR4fICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8=
+   -----END PRIVATE KEY-----
+    `;
+
+  it("should import and export a SPKI public key", async () => {
+    const imported = await mlkem.importKey(
+      "spki",
+      pemToDer(exampleSPKIPublicKey),
+      { name: "ML-KEM-768" },
+      true,
+      ["encapsulateKey"]
+    );
+    expect(imported.type).toBe("public");
+    const raw = await mlkem.exportKey("raw-public", imported);
+    expect(raw).toBeInstanceOf(ArrayBuffer);
+
+    // Export SPKI again and compare
+    const spki = await mlkem.exportKey("spki", imported);
+    expect(new Uint8Array(spki)).toEqual(
+      new Uint8Array(pemToDer(exampleSPKIPublicKey))
+    );
+  });
+
+  it("should import and export a PKCS8 private key", async () => {
+    const imported = await mlkem.importKey(
+      "pkcs8",
+      pemToDer(examplePKCS8PrivateKey),
+      { name: "ML-KEM-768" },
+      true,
+      ["decapsulateKey"]
+    );
+    expect(imported.type).toBe("private");
+    const raw = await mlkem.exportKey("raw-seed", imported);
+    expect(raw).toBeInstanceOf(ArrayBuffer);
+
+    // Export PKCS8 again and compare
+    const pkcs8 = await mlkem.exportKey("pkcs8", imported);
+    expect(new Uint8Array(pkcs8)).toEqual(
+      new Uint8Array(pemToDer(examplePKCS8PrivateKey))
+    );
   });
 
   it("should encapsulate and decapsulate bits", async () => {

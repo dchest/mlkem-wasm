@@ -479,6 +479,18 @@ async function exportKey(format, key) {
   if (!key.extractable) {
     throw new MlKemOperationError("Key is not extractable");
   }
+  if (format === "spki") {
+    if (key.type !== "public") {
+      throw new TypeError("Expected key type to be 'public'");
+    }
+    return rawToDer(MLKEM768_SPKI, getPublicKeyDataRef(key)).buffer;
+  }
+  if (format === "pkcs8") {
+    if (key.type !== "private") {
+      throw new MlKemInvalidAccessError("Expected key type to be 'private'");
+    }
+    return rawToDer(MLKEM768_PKCS8, getPrivateKeyDataRef(key).privateSeedData).buffer;
+  }
   if (format === "raw-public") {
     if (key.type !== "public") {
       throw new TypeError("Expected key type to be 'public'");
@@ -524,8 +536,119 @@ function bufferSourcetoUint8Array(value) {
 function bufferSourcetoUint8ArrayCopy(value) {
   return bufferSourcetoUint8Array(value).slice();
 }
+var MLKEM768_SPKI = {
+  fullLength: 1206,
+  prefix: new Uint8Array([
+    48,
+    130,
+    4,
+    178,
+    48,
+    11,
+    6,
+    9,
+    96,
+    134,
+    72,
+    1,
+    101,
+    3,
+    4,
+    4,
+    2,
+    3,
+    130,
+    4,
+    161,
+    0
+  ])
+};
+var MLKEM768_PKCS8 = {
+  fullLength: 86,
+  prefix: new Uint8Array([
+    48,
+    84,
+    2,
+    1,
+    0,
+    48,
+    11,
+    6,
+    9,
+    96,
+    134,
+    72,
+    1,
+    101,
+    3,
+    4,
+    4,
+    2,
+    4,
+    66,
+    128,
+    64
+  ])
+};
+function bytesEqual(a, b) {
+  if (a.length !== b.length) {
+    return false;
+  }
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) {
+    diff |= a[i] ^ b[i];
+  }
+  return diff === 0;
+}
+function derToRaw(encoding, der) {
+  if (der.length !== encoding.fullLength) {
+    throw new MlKemDataError("Invalid encoding");
+  }
+  const prefix = der.subarray(0, encoding.prefix.length);
+  if (!bytesEqual(prefix, encoding.prefix)) {
+    throw new MlKemNotSupportedError("Unsupported encoding");
+  }
+  return der.slice(encoding.prefix.length);
+}
+function rawToDer(encoding, raw) {
+  const der = new Uint8Array(encoding.fullLength);
+  der.set(encoding.prefix);
+  der.set(raw, encoding.prefix.length);
+  return der;
+}
 async function importKey(format, keyData, algorithm, extractable, usages) {
   checkAlgorithm(algorithm);
+  if (format === "spki") {
+    if (!Array.isArray(usages) || usages.some(
+      (usage) => usage !== "encapsulateKey" && usage !== "encapsulateBits"
+    )) {
+      throw new SyntaxError("Invalid key usages for public key");
+    }
+    const data = derToRaw(MLKEM768_SPKI, bufferSourcetoUint8Array(keyData));
+    if (data.length !== PUBLICKEY_BYTES) {
+      throw new MlKemDataError("Invalid key length");
+    }
+    return createPublicKey(data, usages);
+  }
+  if (format === "pkcs8") {
+    if (!Array.isArray(usages) || usages.some(
+      (usage) => usage !== "decapsulateKey" && usage !== "decapsulateBits"
+    )) {
+      throw new SyntaxError("Invalid key usages for private key");
+    }
+    const data = derToRaw(MLKEM768_PKCS8, bufferSourcetoUint8Array(keyData));
+    if (data.length !== KEYPAIR_RANDOM_BYTES) {
+      throw new MlKemDataError("Invalid key length");
+    }
+    const { rawPublicKey, rawSecretKey, rawSeed } = await internalGenerateKeyPair(data);
+    return createPrivateKey(
+      rawPublicKey,
+      rawSeed,
+      rawSecretKey,
+      extractable,
+      usages
+    );
+  }
   if (format === "raw-public") {
     if (!Array.isArray(usages) || usages.some(
       (usage) => usage !== "encapsulateKey" && usage !== "encapsulateBits"
@@ -623,6 +746,25 @@ async function importKey(format, keyData, algorithm, extractable, usages) {
     }
   }
   throw new MlKemNotSupportedError("Unsupported key format");
+}
+function getPublicKey(key, usages) {
+  if (!(key instanceof CryptoKey)) {
+    throw new TypeError("Expected key to be an instance of CryptoKey");
+  }
+  checkAlgorithm(key.algorithm);
+  if (key.type !== "private") {
+    throw new MlKemInvalidAccessError("Expected key type to be 'private'");
+  }
+  if (!Array.isArray(usages) || usages.some(
+    (usage) => usage !== "encapsulateKey" && usage !== "encapsulateBits"
+  )) {
+    throw new SyntaxError("Invalid key usages");
+  }
+  const keyData = getInternalKeyData(key);
+  if (!keyData.publicKeyData) {
+    throw new MlKemOperationError("Failed to get public key data");
+  }
+  return createPublicKey(new Uint8Array(keyData.publicKeyData), usages);
 }
 async function internalEncapsulate(algorithm, encapsulationKey, usage) {
   const module = await getModule();
@@ -757,6 +899,7 @@ var mlkem = {
   generateKey,
   exportKey,
   importKey,
+  getPublicKey,
   encapsulateBits,
   encapsulateKey,
   decapsulateBits,
@@ -765,5 +908,6 @@ var mlkem = {
 };
 var mlkem_default = mlkem;
 export {
-  mlkem_default as default
+  mlkem_default as default,
+  getPublicKey
 };
