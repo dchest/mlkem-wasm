@@ -908,6 +908,5 @@ var mlkem = {
 };
 var mlkem_default = mlkem;
 export {
-  mlkem_default as default,
-  getPublicKey
+  mlkem_default as default
 };
