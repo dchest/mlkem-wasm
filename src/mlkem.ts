@@ -768,7 +768,7 @@ async function importKey(
   throw new MlKemNotSupportedError("Unsupported key format");
 }
 
-export function getPublicKey(key: CryptoKey, usages: MlKemKeyUsage[]) {
+async function getPublicKey(key: CryptoKey, usages: MlKemKeyUsage[]) {
   if (!(key instanceof CryptoKey)) {
     throw new TypeError("Expected key to be an instance of CryptoKey");
   }

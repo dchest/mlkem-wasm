@@ -747,7 +747,7 @@ async function importKey(format, keyData, algorithm, extractable, usages) {
   }
   throw new MlKemNotSupportedError("Unsupported key format");
 }
-function getPublicKey(key, usages) {
+async function getPublicKey(key, usages) {
   if (!(key instanceof CryptoKey)) {
     throw new TypeError("Expected key to be an instance of CryptoKey");
   }

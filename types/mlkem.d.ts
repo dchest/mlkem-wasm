@@ -19,7 +19,7 @@ declare function exportKey(format: Exclude<MlKemKeyFormat, "jwk">, // other form
 key: CryptoKey): Promise<ArrayBuffer>;
 declare function importKey(format: "jwk", keyData: JsonWebKey, algorithm: MlKemAlgorithm, extractable: boolean, usages: MlKemKeyUsage[]): Promise<CryptoKey>;
 declare function importKey(format: Exclude<MlKemKeyFormat, "jwk">, keyData: BufferSource, algorithm: MlKemAlgorithm, extractable: boolean, usages: MlKemKeyUsage[]): Promise<CryptoKey>;
-export declare function getPublicKey(key: CryptoKey, usages: MlKemKeyUsage[]): CryptoKey;
+export declare function getPublicKey(key: CryptoKey, usages: MlKemKeyUsage[]): Promise<CryptoKey>;
 declare function encapsulateBits(algorithm: MlKemAlgorithm, encapsulationKey: CryptoKey): Promise<EncapsulatedBits>;
 declare function encapsulateKey(encapsulationAlgorithm: MlKemAlgorithm, encapsulationKey: CryptoKey, sharedKeyAlgorithm: KeyAlgorithm, extractable: boolean, usages: KeyUsage[]): Promise<EncapsulatedKey>;
 declare function decapsulateBits(decapsulationAlgorithm: MlKemAlgorithm, decapsulationKey: CryptoKey, ciphertext: BufferSource): Promise<ArrayBuffer>;
