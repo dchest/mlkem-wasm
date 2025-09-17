@@ -1,6 +1,6 @@
 {
   "name": "mlkem-wasm",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "description": "ML-KEM-768 implementation using WebAssembly in a single JS file based on mlkem-native",
   "main": "dist/mlkem.js",
   "module": "dist/mlkem.js",
