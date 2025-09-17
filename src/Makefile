@@ -26,8 +26,6 @@ ifeq (,$(findstring $(CROSS_PREFIX),$(CC)))
 CC  := $(CROSS_PREFIX)$(CC)
 endif
 
-# Part A:
-#
 # mlkem-native source and header files
 #
 # If you are not concerned about minimizing for a specific backend,
@@ -38,18 +36,10 @@ MLK_SOURCE=$(wildcard                    \
 	mlkem-native/mlkem/src/**/**/*.c     \
 	mlkem-native/mlkem/src/**/**/**/*.c)
 
-# Part B:
-#
-# Random number generator that aborts if called.
-# We don't use it in the WASM implementation.
-RNG_SOURCE=$(wildcard randombytes/*.c)
-
-# Part C:
-#
 # Wrapper source code
 APP_SOURCE=$(wildcard *.c)
 
-ALL_SOURCE=$(MLK_SOURCE) $(RNG_SOURCE) $(APP_SOURCE)
+ALL_SOURCE=$(MLK_SOURCE) $(APP_SOURCE)
 
 BUILD_DIR=build
 BIN=wasm-module.js
