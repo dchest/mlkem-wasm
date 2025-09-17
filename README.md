@@ -312,6 +312,7 @@ Here are some checkboxes:
 - [x] there are 0 (zero) non-dev dependencies in `package.json`.
 - [x] the JavaScript code is not minified.
 - [x] build artifacts (except for .o) are committed to the repository.
+- [x] hardware security key is used for npm authentication when publishing.
 
 If your company wants to pay to get some other checkboxes from me, please contact me directly.
 
